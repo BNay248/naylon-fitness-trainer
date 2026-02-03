@@ -1,6 +1,45 @@
 import streamlit as st
 from db_manager import WorkoutDB
 import pandas as pd
+import streamlit_authenticator as stauth
+import yaml
+from yaml.loader import SafeLoader
+
+# Must be the first Streamlit command
+st.set_page_config(page_title="Trainer Platform - Admin", layout="wide")
+
+# Load authentication config
+with open('config.yaml') as file:
+    config = yaml.load(file, Loader=SafeLoader)
+
+# Create authenticator
+authenticator = stauth.Authenticate(
+    config['credentials'],
+    config['cookie']['name'],
+    config['cookie']['key'],
+    config['cookie']['expiry_days']
+)
+
+# Login widget
+name, authentication_status, username = authenticator.login('Login', 'main')
+
+# Check authentication status
+if authentication_status == False:
+    st.error('Username/password is incorrect')
+    st.stop()
+elif authentication_status == None:
+    st.warning('Please enter your username and password')
+    st.stop()
+
+# If authenticated, show logout button
+authenticator.logout('Logout', 'sidebar')
+st.sidebar.write(f'Welcome *{name}*')
+
+# Initialize database (only after authentication)
+db = WorkoutDB()
+
+# Rest of your existing app code below...
+st.title("🏋️ Trainer Platform - Admin Setup")
 
 # Initialize database
 db = WorkoutDB()
