@@ -4,6 +4,7 @@ import pandas as pd
 import streamlit_authenticator as stauth
 import yaml
 from yaml.loader import SafeLoader
+import bcrypt
 
 # Must be the first Streamlit command
 st.set_page_config(page_title="Trainer Platform - Admin", layout="wide")
@@ -19,6 +20,39 @@ authenticator = stauth.Authenticate(
     config['cookie']['key'],
     config['cookie']['expiry_days']
 )
+
+# TEMPORARY: User creation interface (remove this after creating your account)
+st.sidebar.header("🔧 Create New User (Temporary)")
+with st.sidebar.form("create_user"):
+    new_username = st.text_input("Username")
+    new_name = st.text_input("Full Name")
+    new_email = st.text_input("Email")
+    new_password = st.text_input("Password", type="password")
+    
+    if st.form_submit_button("Create User"):
+        if new_username and new_name and new_email and new_password:
+            # Hash the password
+            hashed_pw = bcrypt.hashpw(new_password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+            
+            # Add to config
+            if 'usernames' not in config['credentials']:
+                config['credentials']['usernames'] = {}
+            
+            config['credentials']['usernames'][new_username] = {
+                'name': new_name,
+                'email': new_email,
+                'password': hashed_pw
+            }
+            
+            # Save to file
+            with open('config.yaml', 'w') as file:
+                yaml.dump(config, file, default_flow_style=False)
+            
+            st.sidebar.success(f"✅ User '{new_username}' created! Please refresh the page.")
+        else:
+            st.sidebar.error("Please fill all fields")
+
+st.sidebar.divider()
 
 # Login widget
 authenticator.login()
