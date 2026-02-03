@@ -1,6 +1,4 @@
 import streamlit as st
-from db_manager import WorkoutDB
-import pandas as pd
 import streamlit_authenticator as stauth
 import yaml
 from yaml.loader import SafeLoader
@@ -27,9 +25,6 @@ if st.session_state.get("authentication_status"):
     authenticator.logout(location='sidebar')
     st.sidebar.write(f'Welcome *{st.session_state["name"]}*')
     
-    # Initialize database
-    db = WorkoutDB()
-    
     st.title("👥 User Management")
     
     col1, col2 = st.columns([2, 1])
@@ -39,16 +34,26 @@ if st.session_state.get("authentication_status"):
         
         users = config['credentials']['usernames']
         
-        user_data = []
-        for username, details in users.items():
-            user_data.append({
-                'Username': username,
-                'Name': details['name'],
-                'Email': details['email']
-            })
-        
-        df = pd.DataFrame(user_data)
-        st.dataframe(df, use_container_width=True)
+        if users:
+            for username, details in users.items():
+                col_a, col_b, col_c, col_d = st.columns([2, 2, 3, 1])
+                with col_a:
+                    st.write(f"**{username}**")
+                with col_b:
+                    st.write(details['name'])
+                with col_c:
+                    st.write(details['email'])
+                with col_d:
+                    if st.button("Delete", key=f"del_user_{username}"):
+                        # Delete the user
+                        del config['credentials']['usernames'][username]
+                        # Save to file
+                        with open('config.yaml', 'w') as file:
+                            yaml.dump(config, file, default_flow_style=False)
+                        st.success(f"✅ User '{username}' deleted!")
+                        st.rerun()
+        else:
+            st.info("No users found.")
     
     with col2:
         st.subheader("Add New User")
