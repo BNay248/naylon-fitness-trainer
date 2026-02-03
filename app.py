@@ -5,221 +5,204 @@ import pandas as pd
 # Initialize database
 db = WorkoutDB()
 
-st.set_page_config(page_title="Trainer Platform", layout="wide")
+st.set_page_config(page_title="Trainer Platform - Admin", layout="wide")
 
-st.title("🏋️ Trainer Platform")
+st.title("🏋️ Trainer Platform - Admin Setup")
 
 # Sidebar navigation
-page = st.sidebar.selectbox("Navigation", ["Workouts", "Clients", "Coaches", "Sessions"])
+page = st.sidebar.selectbox("Navigation", [
+    "Muscle Groups",
+    "Categories", 
+    "Equipment",
+    "Workouts",
+    "Clients",
+    "Coaches",
+    "Sessions"
+])
 
-# ==================== WORKOUTS PAGE ====================
-if page == "Workouts":
-    st.header("Manage Workouts")
+# ==================== MUSCLE GROUPS PAGE ====================
+if page == "Muscle Groups":
+    st.header("Manage Muscle Groups")
     
     col1, col2 = st.columns([2, 1])
     
     with col1:
-        st.subheader("All Workouts")
-        workouts = db.get_all_workouts()
+        st.subheader("All Muscle Groups")
         
-        if workouts:
-            # Convert to DataFrame for better display
-            df = pd.DataFrame(workouts)
+        # Get or create muscle groups collection
+        muscle_groups = list(db.db.muscle_groups.find())
+        
+        if muscle_groups:
+            df = pd.DataFrame(muscle_groups)
             if '_id' in df.columns:
                 df['_id'] = df['_id'].astype(str)
-            st.dataframe(df, use_container_width=True)
+            
+            # Add delete buttons
+            for idx, row in df.iterrows():
+                col_a, col_b, col_c = st.columns([3, 2, 1])
+                with col_a:
+                    st.write(f"**{row['name']}**")
+                with col_b:
+                    if 'description' in row and row['description']:
+                        st.write(row['description'])
+                with col_c:
+                    if st.button("Delete", key=f"del_mg_{row['_id']}"):
+                        db.db.muscle_groups.delete_one({"_id": row['_id']})
+                        st.rerun()
         else:
-            st.info("No workouts yet. Add one to get started!")
+            st.info("No muscle groups yet. Add some to get started!")
     
     with col2:
-        st.subheader("Add New Workout")
-        with st.form("add_workout"):
-            name = st.text_input("Workout Name*")
-            category = st.selectbox("Category*", ["strength", "cardio", "flexibility", "sport", "functional"])
-            difficulty = st.slider("Difficulty", 1, 10, 5)
+        st.subheader("Add Muscle Group")
+        with st.form("add_muscle_group"):
+            name = st.text_input("Muscle Group Name*", placeholder="e.g., Quadriceps, Chest, Core")
+            description = st.text_area("Description", placeholder="Optional description")
             
-            muscle_groups = st.multiselect(
-                "Muscle Groups",
-                ["chest", "back", "shoulders", "arms", "core", "legs", "glutes", "full_body"]
-            )
-            
-            equipment = st.multiselect(
-                "Equipment",
-                ["barbell", "dumbbell", "kettlebell", "resistance_band", "bodyweight", "machine", "cable"]
-            )
-            
-            tags = st.text_input("Tags (comma-separated)", placeholder="compound, push, etc.")
-            
-            notes = st.text_area("Notes")
-            
-            submitted = st.form_submit_button("Add Workout")
+            submitted = st.form_submit_button("Add Muscle Group")
             
             if submitted:
-                if name and category:
-                    workout = {
-                        "name": name,
-                        "category": category,
-                        "difficulty": difficulty,
-                        "muscle_groups": muscle_groups,
-                        "equipment": equipment,
-                        "tags": [t.strip() for t in tags.split(",") if t.strip()],
-                        "notes": notes
+                if name:
+                    muscle_group = {
+                        "name": name.strip(),
+                        "description": description.strip() if description else ""
                     }
-                    workout_id = db.add_workout(workout)
-                    st.success(f"✅ Workout added! ID: {workout_id}")
+                    db.db.muscle_groups.insert_one(muscle_group)
+                    st.success(f"✅ Muscle group '{name}' added!")
                     st.rerun()
                 else:
-                    st.error("Please fill in required fields (Name, Category)")
+                    st.error("Please enter a muscle group name")
+
+# ==================== CATEGORIES PAGE ====================
+elif page == "Categories":
+    st.header("Manage Categories")
+    
+    col1, col2 = st.columns([2, 1])
+    
+    with col1:
+        st.subheader("All Categories")
+        
+        categories = list(db.db.categories.find())
+        
+        if categories:
+            df = pd.DataFrame(categories)
+            if '_id' in df.columns:
+                df['_id'] = df['_id'].astype(str)
+            
+            for idx, row in df.iterrows():
+                col_a, col_b, col_c = st.columns([3, 2, 1])
+                with col_a:
+                    st.write(f"**{row['name']}**")
+                with col_b:
+                    if 'description' in row and row['description']:
+                        st.write(row['description'])
+                with col_c:
+                    if st.button("Delete", key=f"del_cat_{row['_id']}"):
+                        db.db.categories.delete_one({"_id": row['_id']})
+                        st.rerun()
+        else:
+            st.info("No categories yet. Add some to get started!")
+    
+    with col2:
+        st.subheader("Add Category")
+        with st.form("add_category"):
+            name = st.text_input("Category Name*", placeholder="e.g., Strength, Cardio, Mobility")
+            description = st.text_area("Description", placeholder="Optional description")
+            
+            submitted = st.form_submit_button("Add Category")
+            
+            if submitted:
+                if name:
+                    category = {
+                        "name": name.strip(),
+                        "description": description.strip() if description else ""
+                    }
+                    db.db.categories.insert_one(category)
+                    st.success(f"✅ Category '{name}' added!")
+                    st.rerun()
+                else:
+                    st.error("Please enter a category name")
+
+# ==================== EQUIPMENT PAGE ====================
+elif page == "Equipment":
+    st.header("Manage Equipment")
+    
+    col1, col2 = st.columns([2, 1])
+    
+    with col1:
+        st.subheader("All Equipment")
+        
+        equipment = list(db.db.equipment.find())
+        
+        if equipment:
+            for item in equipment:
+                with st.expander(f"🔧 {item['name']}"):
+                    if 'description' in item and item['description']:
+                        st.write(f"**Description:** {item['description']}")
+                    
+                    # Placeholder for attributes - we'll add this later
+                    st.write("*Attributes coming soon...*")
+                    
+                    if st.button("Delete", key=f"del_eq_{item['_id']}"):
+                        db.db.equipment.delete_one({"_id": item['_id']})
+                        st.rerun()
+        else:
+            st.info("No equipment yet. Add some to get started!")
+    
+    with col2:
+        st.subheader("Add Equipment")
+        with st.form("add_equipment"):
+            name = st.text_input("Equipment Name*", placeholder="e.g., Barbell, Dumbbell, Resistance Band")
+            description = st.text_area("Description", placeholder="Optional description")
+            
+            # Placeholder for future attributes
+            st.info("💡 Equipment attributes (weight ranges, adjustability, etc.) will be added in a future update")
+            
+            submitted = st.form_submit_button("Add Equipment")
+            
+            if submitted:
+                if name:
+                    equipment_item = {
+                        "name": name.strip(),
+                        "description": description.strip() if description else "",
+                        "attributes": {}  # Placeholder for future attributes
+                    }
+                    db.db.equipment.insert_one(equipment_item)
+                    st.success(f"✅ Equipment '{name}' added!")
+                    st.rerun()
+                else:
+                    st.error("Please enter equipment name")
+
+# ==================== WORKOUTS PAGE ====================
+elif page == "Workouts":
+    st.header("Manage Workouts")
+    st.info("🚧 Workout management will be added after foundational data is set up")
+    
+    # Show what's available
+    muscle_groups_count = db.db.muscle_groups.count_documents({})
+    categories_count = db.db.categories.count_documents({})
+    equipment_count = db.db.equipment.count_documents({})
+    
+    st.write("### Setup Progress")
+    st.write(f"- **Muscle Groups:** {muscle_groups_count}")
+    st.write(f"- **Categories:** {categories_count}")
+    st.write(f"- **Equipment:** {equipment_count}")
+    
+    if muscle_groups_count > 0 and categories_count > 0 and equipment_count > 0:
+        st.success("✅ Ready to start adding workouts!")
+    else:
+        st.warning("⚠️ Please add muscle groups, categories, and equipment first")
 
 # ==================== CLIENTS PAGE ====================
 elif page == "Clients":
     st.header("Manage Clients")
-    
-    col1, col2 = st.columns([2, 1])
-    
-    with col1:
-        st.subheader("All Clients")
-        clients = db.get_all_clients()
-        
-        if clients:
-            df = pd.DataFrame(clients)
-            if '_id' in df.columns:
-                df['_id'] = df['_id'].astype(str)
-            st.dataframe(df, use_container_width=True)
-        else:
-            st.info("No clients yet. Add one to get started!")
-    
-    with col2:
-        st.subheader("Add New Client")
-        with st.form("add_client"):
-            name = st.text_input("Client Name*")
-            fitness_level = st.slider("Fitness Level", 1, 10, 5)
-            
-            goals = st.multiselect(
-                "Goals",
-                ["strength", "hypertrophy", "endurance", "weight_loss", "athletic_performance", "general_fitness"]
-            )
-            
-            notes = st.text_area("Notes")
-            
-            submitted = st.form_submit_button("Add Client")
-            
-            if submitted:
-                if name:
-                    client = {
-                        "name": name,
-                        "fitness_level": fitness_level,
-                        "goals": goals,
-                        "notes": notes,
-                        "history": []
-                    }
-                    client_id = db.add_client(client)
-                    st.success(f"✅ Client added! ID: {client_id}")
-                    st.rerun()
-                else:
-                    st.error("Please enter a client name")
+    st.info("🚧 Client management coming soon")
 
 # ==================== COACHES PAGE ====================
 elif page == "Coaches":
     st.header("Manage Coaches")
-    
-    col1, col2 = st.columns([2, 1])
-    
-    with col1:
-        st.subheader("All Coaches")
-        coaches = db.get_all_coaches()
-        
-        if coaches:
-            df = pd.DataFrame(coaches)
-            if '_id' in df.columns:
-                df['_id'] = df['_id'].astype(str)
-            st.dataframe(df, use_container_width=True)
-        else:
-            st.info("No coaches yet. Add one to get started!")
-    
-    with col2:
-        st.subheader("Add New Coach")
-        with st.form("add_coach"):
-            name = st.text_input("Coach Name*")
-            
-            style_tags = st.multiselect(
-                "Coaching Style",
-                ["progressive_overload", "functional", "bodybuilding", "powerlifting", "crossfit", "athletic"]
-            )
-            
-            specialties = st.text_input("Specialties (comma-separated)")
-            
-            submitted = st.form_submit_button("Add Coach")
-            
-            if submitted:
-                if name:
-                    coach = {
-                        "name": name,
-                        "style_tags": style_tags,
-                        "specialties": [s.strip() for s in specialties.split(",") if s.strip()],
-                        "assigned_sessions": []
-                    }
-                    coach_id = db.add_coach(coach)
-                    st.success(f"✅ Coach added! ID: {coach_id}")
-                    st.rerun()
-                else:
-                    st.error("Please enter a coach name")
+    st.info("🚧 Coach management coming soon")
 
 # ==================== SESSIONS PAGE ====================
 elif page == "Sessions":
     st.header("Training Sessions")
-    
-    st.subheader("Create New Session")
-    
-    clients = db.get_all_clients()
-    coaches = db.get_all_coaches()
-    workouts = db.get_all_workouts()
-    
-    if not clients or not coaches or not workouts:
-        st.warning("⚠️ You need at least one client, coach, and workout to create a session.")
-    else:
-        with st.form("create_session"):
-            client = st.selectbox("Client", options=[str(c['_id']) for c in clients], format_func=lambda x: next((c['name'] for c in clients if str(c['_id']) == x), x))
-            coach = st.selectbox("Coach", options=[str(c['_id']) for c in coaches], format_func=lambda x: next((c['name'] for c in coaches if str(c['_id']) == x), x))
-            
-            st.write("Select 9 workouts for this session:")
-            selected_workouts = st.multiselect(
-                "Workouts",
-                options=[str(w['_id']) for w in workouts],
-                format_func=lambda x: next((w['name'] for w in workouts if str(w['_id']) == x), x),
-                max_selections=9
-            )
-            
-            notes = st.text_area("Session Notes")
-            
-            submitted = st.form_submit_button("Create Session")
-            
-            if submitted:
-                if len(selected_workouts) == 9:
-                    session = {
-                        "client_id": client,
-                        "coach_id": coach,
-                        "workout_ids": selected_workouts,
-                        "notes": notes
-                    }
-                    session_id = db.add_session(session)
-                    st.success(f"✅ Session created! ID: {session_id}")
-                    st.rerun()
-                else:
-                    st.error(f"Please select exactly 9 workouts (currently selected: {len(selected_workouts)})")
-    
-    st.divider()
-    
-    st.subheader("All Sessions")
-    sessions = db.get_all_sessions()
-    
-    if sessions:
-        for session in sessions:
-            with st.expander(f"Session {str(session['_id'])} - {session['created_at']}"):
-                st.write(f"**Client ID:** {session['client_id']}")
-                st.write(f"**Coach ID:** {session['coach_id']}")
-                st.write(f"**Workouts:** {len(session['workout_ids'])}")
-                if session.get('notes'):
-                    st.write(f"**Notes:** {session['notes']}")
-    else:
-        st.info("No sessions yet.")
+    st.info("🚧 Session management coming soon")
