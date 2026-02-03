@@ -36,14 +36,10 @@ if st.session_state.get("authentication_status"):
         
         if users:
             for username, details in users.items():
-                col_a, col_b, col_c, col_d = st.columns([2, 2, 3, 1])
+                col_a, col_b = st.columns(2)
                 with col_a:
                     st.write(f"**{username}**")
                 with col_b:
-                    st.write(details['name'])
-                with col_c:
-                    st.write(details['email'])
-                with col_d:
                     if st.button("Delete", key=f"del_user_{username}"):
                         # Delete the user
                         del config['credentials']['usernames'][username]
