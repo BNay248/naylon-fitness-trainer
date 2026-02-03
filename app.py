@@ -21,39 +21,6 @@ authenticator = stauth.Authenticate(
     config['cookie']['expiry_days']
 )
 
-# TEMPORARY: User creation interface (remove this after creating your account)
-st.sidebar.header("🔧 Create New User (Temporary)")
-with st.sidebar.form("create_user"):
-    new_username = st.text_input("Username")
-    new_name = st.text_input("Full Name")
-    new_email = st.text_input("Email")
-    new_password = st.text_input("Password", type="password")
-    
-    if st.form_submit_button("Create User"):
-        if new_username and new_name and new_email and new_password:
-            # Hash the password
-            hashed_pw = bcrypt.hashpw(new_password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
-            
-            # Add to config
-            if 'usernames' not in config['credentials']:
-                config['credentials']['usernames'] = {}
-            
-            config['credentials']['usernames'][new_username] = {
-                'name': new_name,
-                'email': new_email,
-                'password': hashed_pw
-            }
-            
-            # Save to file
-            with open('config.yaml', 'w') as file:
-                yaml.dump(config, file, default_flow_style=False)
-            
-            st.sidebar.success(f"✅ User '{new_username}' created! Please refresh the page.")
-        else:
-            st.sidebar.error("Please fill all fields")
-
-st.sidebar.divider()
-
 # Login widget
 authenticator.login()
 
@@ -76,7 +43,8 @@ if st.session_state.get("authentication_status"):
         "Workouts",
         "Clients",
         "Coaches",
-        "Sessions"
+        "Sessions",
+        "User Management"  # NEW
     ])
     
     # ==================== MUSCLE GROUPS PAGE ====================
@@ -88,7 +56,6 @@ if st.session_state.get("authentication_status"):
         with col1:
             st.subheader("All Muscle Groups")
             
-            # Get or create muscle groups collection
             muscle_groups = list(db.db.muscle_groups.find())
             
             if muscle_groups:
@@ -96,7 +63,6 @@ if st.session_state.get("authentication_status"):
                 if '_id' in df.columns:
                     df['_id'] = df['_id'].astype(str)
                 
-                # Add delete buttons
                 for idx, row in df.iterrows():
                     col_a, col_b, col_c = st.columns([3, 2, 1])
                     with col_a:
@@ -198,7 +164,6 @@ if st.session_state.get("authentication_status"):
                         if 'description' in item and item['description']:
                             st.write(f"**Description:** {item['description']}")
                         
-                        # Placeholder for attributes - we'll add this later
                         st.write("*Attributes coming soon...*")
                         
                         if st.button("Delete", key=f"del_eq_{item['_id']}"):
@@ -213,7 +178,6 @@ if st.session_state.get("authentication_status"):
                 name = st.text_input("Equipment Name*", placeholder="e.g., Barbell, Dumbbell, Resistance Band")
                 description = st.text_area("Description", placeholder="Optional description")
                 
-                # Placeholder for future attributes
                 st.info("💡 Equipment attributes (weight ranges, adjustability, etc.) will be added in a future update")
                 
                 submitted = st.form_submit_button("Add Equipment")
@@ -223,7 +187,7 @@ if st.session_state.get("authentication_status"):
                         equipment_item = {
                             "name": name.strip(),
                             "description": description.strip() if description else "",
-                            "attributes": {}  # Placeholder for future attributes
+                            "attributes": {}
                         }
                         db.db.equipment.insert_one(equipment_item)
                         st.success(f"✅ Equipment '{name}' added!")
@@ -236,7 +200,6 @@ if st.session_state.get("authentication_status"):
         st.header("Manage Workouts")
         st.info("🚧 Workout management will be added after foundational data is set up")
         
-        # Show what's available
         muscle_groups_count = db.db.muscle_groups.count_documents({})
         categories_count = db.db.categories.count_documents({})
         equipment_count = db.db.equipment.count_documents({})
@@ -265,6 +228,62 @@ if st.session_state.get("authentication_status"):
     elif page == "Sessions":
         st.header("Training Sessions")
         st.info("🚧 Session management coming soon")
+    
+    # ==================== USER MANAGEMENT PAGE ====================
+    elif page == "User Management":
+        st.header("👥 User Management")
+        
+        col1, col2 = st.columns([2, 1])
+        
+        with col1:
+            st.subheader("Current Users")
+            
+            users = config['credentials']['usernames']
+            
+            user_data = []
+            for username, details in users.items():
+                user_data.append({
+                    'Username': username,
+                    'Name': details['name'],
+                    'Email': details['email']
+                })
+            
+            df = pd.DataFrame(user_data)
+            st.dataframe(df, use_container_width=True)
+        
+        with col2:
+            st.subheader("Add New User")
+            with st.form("add_user"):
+                new_username = st.text_input("Username*")
+                new_name = st.text_input("Full Name*")
+                new_email = st.text_input("Email*")
+                new_password = st.text_input("Password*", type="password")
+                
+                submitted = st.form_submit_button("Create User")
+                
+                if submitted:
+                    if new_username and new_name and new_email and new_password:
+                        if new_username in config['credentials']['usernames']:
+                            st.error("Username already exists!")
+                        else:
+                            # Hash the password
+                            hashed_pw = bcrypt.hashpw(new_password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+                            
+                            # Add to config
+                            config['credentials']['usernames'][new_username] = {
+                                'name': new_name,
+                                'email': new_email,
+                                'password': hashed_pw
+                            }
+                            
+                            # Save to file
+                            with open('config.yaml', 'w') as file:
+                                yaml.dump(config, file, default_flow_style=False)
+                            
+                            st.success(f"✅ User '{new_username}' created!")
+                            st.rerun()
+                    else:
+                        st.error("Please fill all fields")
 
 elif st.session_state.get("authentication_status") == False:
     st.error('Username/password is incorrect')
