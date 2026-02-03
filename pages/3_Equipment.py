@@ -46,8 +46,9 @@ if st.session_state.get("authentication_status"):
                     
                     st.write("*Attributes coming soon...*")
                     
-                    if st.button("Delete", key=f"del_eq_{item['_id']}"):
+                    if st.button("Delete", key=f"del_eq_{str(item['_id'])}"):
                         db.db.equipment.delete_one({"_id": item['_id']})
+                        st.success(f"✅ Equipment '{item['name']}' deleted!")
                         st.rerun()
         else:
             st.info("No equipment yet. Add some to get started!")

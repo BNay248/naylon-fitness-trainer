@@ -40,8 +40,6 @@ if st.session_state.get("authentication_status"):
         
         if categories:
             df = pd.DataFrame(categories)
-            if '_id' in df.columns:
-                df['_id'] = df['_id'].astype(str)
             
             for idx, row in df.iterrows():
                 col_a, col_b, col_c = st.columns([3, 2, 1])
@@ -51,8 +49,9 @@ if st.session_state.get("authentication_status"):
                     if 'description' in row and row['description']:
                         st.write(row['description'])
                 with col_c:
-                    if st.button("Delete", key=f"del_cat_{row['_id']}"):
+                    if st.button("Delete", key=f"del_cat_{str(row['_id'])}"):
                         db.db.categories.delete_one({"_id": row['_id']})
+                        st.success(f"✅ Category '{row['name']}' deleted!")
                         st.rerun()
         else:
             st.info("No categories yet. Add some to get started!")
