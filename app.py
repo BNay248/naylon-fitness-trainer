@@ -21,7 +21,7 @@ authenticator = stauth.Authenticate(
 )
 
 # Login widget
-name, authentication_status, username = authenticator.login('Login', 'main')
+name, authentication_status, username = authenticator.login()
 
 # Check authentication status
 if authentication_status == False:
@@ -32,7 +32,7 @@ elif authentication_status == None:
     st.stop()
 
 # If authenticated, show logout button
-authenticator.logout('Logout', 'sidebar')
+authenticator.logout(location='sidebar')
 st.sidebar.write(f'Welcome *{name}*')
 
 # Initialize database (only after authentication)
