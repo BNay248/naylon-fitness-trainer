@@ -31,50 +31,46 @@ if st.session_state.get("authentication_status"):
     
     st.title("Manage Categories")
     
-    col1, col2 = st.columns([2, 1])
-    
-    with col1:
-        st.subheader("All Categories")
+    st.subheader("Add Category")
+    with st.form("add_category"):
+        name = st.text_input("Category Name*", placeholder="e.g., Strength, Cardio, Mobility")
+        description = st.text_area("Description", placeholder="Optional description")
         
-        categories = list(db.db.categories.find())
+        submitted = st.form_submit_button("Add Category")
         
-        if categories:
-            df = pd.DataFrame(categories)
-            
-            for idx, row in df.iterrows():
-                col_a, col_b, col_c = st.columns([3, 2, 1])
-                with col_a:
-                    st.write(f"**{row['name']}**")
-                with col_b:
-                    if 'description' in row and row['description']:
-                        st.write(row['description'])
-                with col_c:
-                    if st.button("Delete", key=f"del_cat_{str(row['_id'])}"):
-                        db.db.categories.delete_one({"_id": row['_id']})
-                        st.success(f"✅ Category '{row['name']}' deleted!")
-                        st.rerun()
-        else:
-            st.info("No categories yet. Add some to get started!")
+        if submitted:
+            if name:
+                category = {
+                    "name": name.strip(),
+                    "description": description.strip() if description else ""
+                }
+                db.db.categories.insert_one(category)
+                st.success(f"✅ Category '{name}' added!")
+                st.rerun()
+            else:
+                st.error("Please enter a category name")
     
-    with col2:
-        st.subheader("Add Category")
-        with st.form("add_category"):
-            name = st.text_input("Category Name*", placeholder="e.g., Strength, Cardio, Mobility")
-            description = st.text_area("Description", placeholder="Optional description")
-            
-            submitted = st.form_submit_button("Add Category")
-            
-            if submitted:
-                if name:
-                    category = {
-                        "name": name.strip(),
-                        "description": description.strip() if description else ""
-                    }
-                    db.db.categories.insert_one(category)
-                    st.success(f"✅ Category '{name}' added!")
+    st.subheader("All Categories")
+    
+    categories = list(db.db.categories.find())
+    
+    if categories:
+        df = pd.DataFrame(categories)
+        
+        for idx, row in df.iterrows():
+            col_a, col_b, col_c = st.columns([3, 2, 1])
+            with col_a:
+                st.write(f"**{row['name']}**")
+            with col_b:
+                if 'description' in row and row['description']:
+                    st.write(row['description'])
+            with col_c:
+                if st.button("Delete", key=f"del_cat_{str(row['_id'])}"):
+                    db.db.categories.delete_one({"_id": row['_id']})
+                    st.success(f"✅ Category '{row['name']}' deleted!")
                     st.rerun()
-                else:
-                    st.error("Please enter a category name")
+    else:
+        st.info("No categories yet. Add some to get started!")
 
 elif st.session_state.get("authentication_status") == False:
     st.error('Username/password is incorrect')
