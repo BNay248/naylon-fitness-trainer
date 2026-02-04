@@ -47,16 +47,29 @@ if st.session_state.get("authentication_status"):
         
         if submitted:
             if name:
-                equipment_item = {
-                    "name": name.strip(),
-                    "description": description.strip() if description else "",
-                    "attributes": {}
-                }
-                db.db.equipment.insert_one(equipment_item)
-                st.success(f"✅ Equipment '{name}' added!")
-                st.rerun()
+                # Split by semicolons and create multiple equipment items
+                equipment_names = [eq.strip() for eq in name.split(';') if eq.strip()]
+                
+                if equipment_names:
+                    added_count = 0
+                    for eq_name in equipment_names:
+                        equipment_item = {
+                            "name": eq_name,
+                            "description": description.strip() if description else "",
+                            "attributes": {}
+                        }
+                        db.db.equipment.insert_one(equipment_item)
+                        added_count += 1
+                    
+                    if added_count == 1:
+                        st.success(f"✅ Equipment '{equipment_names[0]}' added!")
+                    else:
+                        st.success(f"✅ {added_count} equipment items added!")
+                    st.rerun()
+                else:
+                    st.error("Please enter at least one equipment name")
             else:
-                st.error("Please enter equipment name")
+                st.error("Please enter equipment name(s)")
     
     st.subheader("All Equipment")
     

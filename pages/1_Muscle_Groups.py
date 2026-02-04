@@ -50,15 +50,28 @@ if st.session_state.get("authentication_status"):
             
             if submitted_muscle:
                 if muscle_name:
-                    muscle = {
-                        "name": muscle_name.strip(),
-                        "description": muscle_description.strip() if muscle_description else ""
-                    }
-                    db.db.muscles.insert_one(muscle)
-                    st.success(f"✅ Muscle '{muscle_name}' added!")
-                    st.rerun()
+                    # Split by semicolons and create multiple muscles
+                    muscle_names = [m.strip() for m in muscle_name.split(';') if m.strip()]
+                    
+                    if muscle_names:
+                        added_count = 0
+                        for m_name in muscle_names:
+                            muscle = {
+                                "name": m_name,
+                                "description": muscle_description.strip() if muscle_description else ""
+                            }
+                            db.db.muscles.insert_one(muscle)
+                            added_count += 1
+                        
+                        if added_count == 1:
+                            st.success(f"✅ Muscle '{muscle_names[0]}' added!")
+                        else:
+                            st.success(f"✅ {added_count} muscles added!")
+                        st.rerun()
+                    else:
+                        st.error("Please enter at least one muscle name")
                 else:
-                    st.error("Please enter a muscle name")
+                    st.error("Please enter muscle name(s)")
         
         st.markdown("**All Muscles**")
         muscles = list(db.db.muscles.find())

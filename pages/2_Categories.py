@@ -45,15 +45,28 @@ if st.session_state.get("authentication_status"):
         
         if submitted:
             if name:
-                category = {
-                    "name": name.strip(),
-                    "description": description.strip() if description else ""
-                }
-                db.db.categories.insert_one(category)
-                st.success(f"✅ Category '{name}' added!")
-                st.rerun()
+                # Split by semicolons and create multiple categories
+                category_names = [cat.strip() for cat in name.split(';') if cat.strip()]
+                
+                if category_names:
+                    added_count = 0
+                    for cat_name in category_names:
+                        category = {
+                            "name": cat_name,
+                            "description": description.strip() if description else ""
+                        }
+                        db.db.categories.insert_one(category)
+                        added_count += 1
+                    
+                    if added_count == 1:
+                        st.success(f"✅ Category '{category_names[0]}' added!")
+                    else:
+                        st.success(f"✅ {added_count} categories added!")
+                    st.rerun()
+                else:
+                    st.error("Please enter at least one category name")
             else:
-                st.error("Please enter a category name")
+                st.error("Please enter category name(s)")
     
     st.subheader("All Categories")
     
