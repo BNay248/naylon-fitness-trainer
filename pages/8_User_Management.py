@@ -19,6 +19,8 @@ authenticator = stauth.Authenticate(
 # Login widget
 authenticator.login()
 
+st.set_page_config(page_title="NFP - User Management", layout="wide")
+
 # Check authentication status from session state
 if st.session_state.get("authentication_status"):
     # User is authenticated
