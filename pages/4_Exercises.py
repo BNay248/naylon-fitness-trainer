@@ -150,10 +150,13 @@ if st.session_state.get("authentication_status"):
             
             # Additional Muscles - multiselect from muscles not in selected muscle groups
             all_muscles = db.get_all_muscles()
-            selected_group_names = set(selected_mg)
+            selected_group_ids = set()
+            for name in selected_mg:
+                if name in mg_options:
+                    selected_group_ids.add(mg_options[name])
             additional_muscle_options = {}
             for m in all_muscles:
-                if m.get('group') not in selected_group_names:
+                if m.get('group') not in selected_group_ids:
                     additional_muscle_options[m['name']] = str(m['_id'])
             
             default_additional_names = []
@@ -279,6 +282,8 @@ if st.session_state.get("authentication_status"):
                     del st.session_state.variant_parent_id
                 if 'current_parent' in st.session_state:
                     st.session_state.current_parent = None
+                
+                st.rerun()  # Refresh to show the new exercise
     
     # Display existing exercises
     st.subheader("Existing Exercises")
@@ -330,7 +335,7 @@ if st.session_state.get("authentication_status"):
                             if cat:
                                 current_cat_names.append(cat['name'])
                         
-                        selected_categories = st.multiselect("Categories *", options=list(category_options.keys()), default=current_cat_names, help="Required field")
+                        selected_categories = st.multiselect("Categories *", options=list(category_options.keys()), default=current_cat_names, help="Required field", key=f"categories_{ex['_id']}")
                     else:
                         selected_categories = []
                 
@@ -345,16 +350,19 @@ if st.session_state.get("authentication_status"):
                             if mg:
                                 current_mg_names.append(mg['name'])
                         
-                        selected_mg = st.multiselect("Muscle Groups", options=list(mg_options.keys()), default=current_mg_names)
+                        selected_mg = st.multiselect("Muscle Groups", options=list(mg_options.keys()), default=current_mg_names, key=f"mg_{ex['_id']}")
                     else:
                         selected_mg = []
 
                     # Additional Muscles
                     all_muscles = db.get_all_muscles()
-                    selected_group_names = set(selected_mg)
+                    selected_group_ids = set()
+                    for name in selected_mg:
+                        if name in mg_options:
+                            selected_group_ids.add(mg_options[name])
                     additional_muscle_options = {}
                     for m in all_muscles:
-                        if m.get('group') not in selected_group_names:
+                        if m.get('group') not in selected_group_ids:
                             additional_muscle_options[m['name']] = str(m['_id'])
                     
                     current_additional_names = []
@@ -363,7 +371,7 @@ if st.session_state.get("authentication_status"):
                         if m:
                             current_additional_names.append(m['name'])
                     
-                    selected_additional = st.multiselect("Additional Muscles", options=list(additional_muscle_options.keys()), default=current_additional_names)
+                    selected_additional = st.multiselect("Additional Muscles", options=list(additional_muscle_options.keys()), default=current_additional_names, key=f"additional_{ex['_id']}")
                     
                     # Equipment
                     equipment = db.get_all_equipment()
@@ -375,7 +383,7 @@ if st.session_state.get("authentication_status"):
                             if eq:
                                 current_eq_names.append(eq['name'])
                         
-                        selected_eq = st.multiselect("Equipment", options=list(eq_options.keys()), default=current_eq_names)
+                        selected_eq = st.multiselect("Equipment", options=list(eq_options.keys()), default=current_eq_names, key=f"equipment_{ex['_id']}")
                     else:
                         selected_eq = []
                     
