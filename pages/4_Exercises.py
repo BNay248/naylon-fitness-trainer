@@ -478,6 +478,10 @@ if st.session_state.get("authentication_status"):
     if exercises:
         for ex in exercises:
             display_exercise(ex)
+    else:
+        st.info("No exercises yet. Add some to get started!")
+        
+elif st.session_state.get("authentication_status") == False:
     st.error('Username/password is incorrect')
 elif st.session_state.get("authentication_status") == None:
     st.warning('Please enter your username and password')
