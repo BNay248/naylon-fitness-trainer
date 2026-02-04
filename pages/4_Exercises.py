@@ -40,77 +40,11 @@ if st.session_state.get("authentication_status"):
     categories_count = db.db.categories.count_documents({})
     equipment_count = db.db.equipment.count_documents({})
     
-    st.write("### Setup Progress")
-    st.write(f"- **Muscle Groups:** {muscle_groups_count}")
-    st.write(f"- **Categories:** {categories_count}")
-    st.write(f"- **Equipment:** {equipment_count}")
+    # Initialize data early
+    exercises = db.get_all_exercises()
     
     if muscle_groups_count > 0 and categories_count > 0 and equipment_count > 0:
         st.success("✅ Ready to manage exercises!")
-        
-        # Display existing exercises
-        st.subheader("Existing Exercises")
-        exercises = db.get_all_exercises()
-        if exercises:
-            for ex in exercises:
-                with st.expander(f"**{ex['name']}**"):
-                    if 'parent_id' in ex:
-                        parent = db.get_exercise(ex['parent_id'])
-                        st.write(f"**Variant of:** {parent['name'] if parent else 'Unknown'}")
-                    st.write(f"**Instructions:** {ex['instructions']}")
-                    # Get category names
-                    cat_names = []
-                    cat_ids = ex.get('category', [])
-                    if isinstance(cat_ids, str):
-                        cat_ids = [cat_ids]  # Handle old single category
-                    for cat_id in cat_ids:
-                        cat = db.get_category(cat_id)
-                        if cat:
-                            cat_names.append(cat['name'])
-                    if cat_names:
-                        st.write(f"**Categories:** {', '.join(cat_names)}")
-                    else:
-                        st.write("**Categories:** Unknown")
-                    # Muscle groups
-                    mg_names = []
-                    for mg_id in ex.get('muscle_groups', []):
-                        mg = db.get_muscle_group(mg_id)
-                        if mg:
-                            mg_names.append(mg['name'])
-                    if mg_names:
-                        st.write(f"**Muscle Groups:** {', '.join(mg_names)}")
-                    # Additional muscles
-                    additional_names = []
-                    for m_id in ex.get('additional_muscles', []):
-                        m = db.get_muscle(m_id)
-                        if m:
-                            additional_names.append(m['name'])
-                    if additional_names:
-                        st.write(f"**Additional Muscles:** {', '.join(additional_names)}")
-                    # Equipment
-                    eq_names = []
-                    for eq_id in ex.get('equipment', []):
-                        eq = db.get_equipment(eq_id)
-                        if eq:
-                            eq_names.append(eq['name'])
-                    if eq_names:
-                        st.write(f"**Equipment:** {', '.join(eq_names)}")
-                        # Show equipment settings
-                        equipment_settings = ex.get('equipment_settings', {})
-                        if equipment_settings:
-                            for eq_id, settings in equipment_settings.items():
-                                eq = db.get_equipment(eq_id)
-                                if eq:
-                                    st.write(f"**{eq['name']} Settings:**")
-                                    for char_name, value in settings.items():
-                                        st.write(f"- {char_name}: {value}")
-                    # Metrics
-                    if ex.get('metrics'):
-                        st.write("**Metrics:**")
-                        for metric in ex['metrics']:
-                            st.write(f"- {metric['name']} ({metric['type']})")
-        else:
-            st.info("No exercises added yet.")
         
         # Add new exercise form
         st.subheader("Add New Exercise")
@@ -122,7 +56,6 @@ if st.session_state.get("authentication_status"):
         is_variant = st.checkbox("Create as variant of existing exercise")
         
         if is_variant:
-            exercises = db.get_all_exercises()
             if exercises:
                 parent_options = {ex['name']: str(ex['_id']) for ex in exercises}
                 
@@ -322,6 +255,69 @@ if st.session_state.get("authentication_status"):
                     st.session_state.current_parent = None
                 
                 st.rerun()  # Refresh to show the new exercise
+        
+        # Display existing exercises
+        st.subheader("Existing Exercises")
+        if exercises:
+            for ex in exercises:
+                with st.expander(f"**{ex['name']}**"):
+                    if 'parent_id' in ex:
+                        parent = db.get_exercise(ex['parent_id'])
+                        st.write(f"**Variant of:** {parent['name'] if parent else 'Unknown'}")
+                    st.write(f"**Instructions:** {ex['instructions']}")
+                    # Get category names
+                    cat_names = []
+                    cat_ids = ex.get('category', [])
+                    if isinstance(cat_ids, str):
+                        cat_ids = [cat_ids]  # Handle old single category
+                    for cat_id in cat_ids:
+                        cat = db.get_category(cat_id)
+                        if cat:
+                            cat_names.append(cat['name'])
+                    if cat_names:
+                        st.write(f"**Categories:** {', '.join(cat_names)}")
+                    else:
+                        st.write("**Categories:** Unknown")
+                    # Muscle groups
+                    mg_names = []
+                    for mg_id in ex.get('muscle_groups', []):
+                        mg = db.get_muscle_group(mg_id)
+                        if mg:
+                            mg_names.append(mg['name'])
+                    if mg_names:
+                        st.write(f"**Muscle Groups:** {', '.join(mg_names)}")
+                    # Additional muscles
+                    additional_names = []
+                    for m_id in ex.get('additional_muscles', []):
+                        m = db.get_muscle(m_id)
+                        if m:
+                            additional_names.append(m['name'])
+                    if additional_names:
+                        st.write(f"**Additional Muscles:** {', '.join(additional_names)}")
+                    # Equipment
+                    eq_names = []
+                    for eq_id in ex.get('equipment', []):
+                        eq = db.get_equipment(eq_id)
+                        if eq:
+                            eq_names.append(eq['name'])
+                    if eq_names:
+                        st.write(f"**Equipment:** {', '.join(eq_names)}")
+                        # Show equipment settings
+                        equipment_settings = ex.get('equipment_settings', {})
+                        if equipment_settings:
+                            for eq_id, settings in equipment_settings.items():
+                                eq = db.get_equipment(eq_id)
+                                if eq:
+                                    st.write(f"**{eq['name']} Settings:**")
+                                    for char_name, value in settings.items():
+                                        st.write(f"- {char_name}: {value}")
+                    # Metrics
+                    if ex.get('metrics'):
+                        st.write("**Metrics:**")
+                        for metric in ex['metrics']:
+                            st.write(f"- {metric['name']} ({metric['type']})")
+        else:
+            st.info("No exercises added yet.")
     
     else:
         st.warning("⚠️ Please add muscle groups, categories, and equipment first")
