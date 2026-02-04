@@ -148,10 +148,13 @@ if st.session_state.get("authentication_status"):
             
             # Additional Muscles - multiselect from muscles not in selected muscle groups
             all_muscles = db.get_all_muscles()
-            selected_group_names = set(selected_mg)  # selected_mg is list of group names
+            selected_group_ids = set()
+            for name in selected_mg:
+                if name in mg_options:
+                    selected_group_ids.add(mg_options[name])
             additional_muscle_options = {}
             for m in all_muscles:
-                if m.get('group') not in selected_group_names:
+                if m.get('group') not in selected_group_ids:
                     additional_muscle_options[m['name']] = str(m['_id'])
             
             default_additional_names = []
@@ -192,7 +195,7 @@ if st.session_state.get("authentication_status"):
                             if isinstance(char_data, dict):
                                 char_type = char_data.get('type', 'variant')
                                 if char_type == 'numeric':
-                                    value = st.number_input(f"{char_name}", key=f"{eq_id}_{char_name}")
+                                    value = st.number_input(f"{char_name}", step=1, format="%d", key=f"{eq_id}_{char_name}")
                                     equipment_settings[eq_id][char_name] = value
                                 elif char_type == 'variant':
                                     variants = char_data.get('variants', [])
@@ -253,27 +256,40 @@ if st.session_state.get("authentication_status"):
                     st.session_state['show_add_string_input'] = False
                     st.rerun()
         
-        metrics = []
-        for i, metric in enumerate(st.session_state['add_metrics']):
-            col1, col2, col3 = st.columns([3, 1, 1])
-            with col1:
-                name_metric = st.text_input(f"Metric {i+1} Name", value=metric['name'], key=f"add_metric_name_{i}")
-            with col2:
-                type_index = 0 if metric['type'] == 'numeric' else 1
-                type_metric = st.selectbox("Type", ["numeric", "string"], index=type_index, key=f"add_metric_type_{i}")
-            with col3:
-                if st.button("🗑️", key=f"add_metric_delete_{i}"):
-                    st.session_state['add_delete_index'] = i
-                    st.rerun()
-            metrics.append({"name": name_metric, "type": type_metric})
+        col_num_metrics, col_str_metrics = st.columns(2)
+        with col_num_metrics:
+            st.write("**Numeric Metrics**")
+            numeric_metrics = []
+            for i, metric in enumerate(st.session_state['add_metrics']):
+                if metric['type'] == 'numeric':
+                    col1, col2 = st.columns([4, 1])
+                    with col1:
+                        name_metric = st.text_input(f"Metric Name", value=metric['name'], key=f"add_metric_name_{i}")
+                    with col2:
+                        if st.button("🗑️", key=f"add_metric_delete_{i}"):
+                            st.session_state['add_delete_index'] = i
+                            st.rerun()
+                    numeric_metrics.append({"name": name_metric, "type": "numeric"})
+        with col_str_metrics:
+            st.write("**String Metrics**")
+            string_metrics = []
+            for i, metric in enumerate(st.session_state['add_metrics']):
+                if metric['type'] == 'string':
+                    col1, col2 = st.columns([4, 1])
+                    with col1:
+                        name_metric = st.text_input(f"Metric Name", value=metric['name'], key=f"add_metric_name_{i}")
+                    with col2:
+                        if st.button("🗑️", key=f"add_metric_delete_{i}"):
+                            st.session_state['add_delete_index'] = i
+                            st.rerun()
+                    string_metrics.append({"name": name_metric, "type": "string"})
+        
+        final_metrics = [m for m in numeric_metrics + string_metrics if m['name'].strip()]
         
         if st.button("Add Exercise"):
             if not name or not instructions or not selected_categories:
                 st.error("Please fill in all required fields (Name, Instructions, Categories).")
             else:
-                # Build metrics list (filter out empty names)
-                final_metrics = [m for m in metrics if m['name'].strip()]
-                
                 # Build exercise data
                 exercise_data = {
                     "name": name.strip(),
@@ -412,7 +428,14 @@ if st.session_state.get("authentication_status"):
 
                     # Additional Muscles
                     all_muscles = db.get_all_muscles()
-                    additional_muscle_options = {m['name']: str(m['_id']) for m in all_muscles}
+                    selected_group_ids = set()
+                    for name in selected_mg:
+                        if name in mg_options:
+                            selected_group_ids.add(mg_options[name])
+                    additional_muscle_options = {}
+                    for m in all_muscles:
+                        if m.get('group') not in selected_group_ids:
+                            additional_muscle_options[m['name']] = str(m['_id'])
                     
                     current_additional_names = []
                     for m_id in ex.get('additional_muscles', []):
@@ -452,7 +475,7 @@ if st.session_state.get("authentication_status"):
                                         if char_type == 'numeric':
                                             # Get current value
                                             current_value = ex.get('equipment_settings', {}).get(eq_id, {}).get(char_name, 0)
-                                            value = st.number_input(f"{char_name}", value=current_value, key=f"edit_{eq_id}_{char_name}")
+                                            value = st.number_input(f"{char_name}", value=int(current_value), step=1, format="%d", key=f"edit_{eq_id}_{char_name}")
                                             equipment_settings[eq_id][char_name] = value
                                         elif char_type == 'variant':
                                             variants = char_data.get('variants', [])
@@ -462,27 +485,40 @@ if st.session_state.get("authentication_status"):
                 
                 # Metrics
                 st.write("**Metrics** (optional)")
-                metrics = []
-                for i, metric in enumerate(st.session_state[edit_metrics_key]):
-                    col1, col2, col3 = st.columns([3, 1, 1])
-                    with col1:
-                        name_metric = st.text_input(f"Metric {i+1} Name", value=metric['name'], key=f"edit_metric_name_{ex['_id']}_{i}")
-                    with col2:
-                        type_index = 0 if metric['type'] == 'numeric' else 1
-                        type_metric = st.selectbox("Type", ["numeric", "string"], index=type_index, key=f"edit_metric_type_{ex['_id']}_{i}")
-                    with col3:
-                        if st.button("🗑️", key=f"edit_metric_delete_{ex['_id']}_{i}"):
-                            st.session_state['edit_delete_index'] = (str(ex['_id']), i)
-                            st.rerun()
-                    metrics.append({"name": name_metric, "type": type_metric})
+                col_num_metrics, col_str_metrics = st.columns(2)
+                with col_num_metrics:
+                    st.write("**Numeric Metrics**")
+                    numeric_metrics = []
+                    for i, metric in enumerate(st.session_state[edit_metrics_key]):
+                        if metric['type'] == 'numeric':
+                            col1, col2 = st.columns([4, 1])
+                            with col1:
+                                name_metric = st.text_input(f"Metric Name", value=metric['name'], key=f"edit_metric_name_{ex['_id']}_{i}")
+                            with col2:
+                                if st.button("🗑️", key=f"edit_metric_delete_{ex['_id']}_{i}"):
+                                    st.session_state['edit_delete_index'] = (str(ex['_id']), i)
+                                    st.rerun()
+                            numeric_metrics.append({"name": name_metric, "type": "numeric"})
+                with col_str_metrics:
+                    st.write("**String Metrics**")
+                    string_metrics = []
+                    for i, metric in enumerate(st.session_state[edit_metrics_key]):
+                        if metric['type'] == 'string':
+                            col1, col2 = st.columns([4, 1])
+                            with col1:
+                                name_metric = st.text_input(f"Metric Name", value=metric['name'], key=f"edit_metric_name_{ex['_id']}_{i}")
+                            with col2:
+                                if st.button("🗑️", key=f"edit_metric_delete_{ex['_id']}_{i}"):
+                                    st.session_state['edit_delete_index'] = (str(ex['_id']), i)
+                                    st.rerun()
+                            string_metrics.append({"name": name_metric, "type": "string"})
+                
+                final_metrics = [m for m in numeric_metrics + string_metrics if m['name'].strip()]
                 
                 if st.button("Save Changes", key=f"save_{ex['_id']}"):
                     if not instructions or not selected_categories:
                         st.error("Please fill in all required fields (Instructions, Categories).")
                     else:
-                        # Build metrics list (filter out empty names)
-                        final_metrics = [m for m in metrics if m['name'].strip()]
-                        
                         # Build update data
                         update_data = {
                             "instructions": instructions.strip(),
