@@ -93,24 +93,13 @@ if st.session_state.get("authentication_status"):
         if st.session_state.exercise_defaults.get('metrics', []) != st.session_state['add_metrics']:
             st.session_state['add_metrics'] = st.session_state.exercise_defaults.get('metrics', [])
     
-    # Add metric buttons
-    col_add_num, col_add_str = st.columns(2)
-    with col_add_num:
-        if st.button("Add Numeric Metric"):
-            st.session_state['add_metrics'].append({'name': '', 'type': 'numeric'})
-            st.rerun()
-    with col_add_str:
-        if st.button("Add String Metric"):
-            st.session_state['add_metrics'].append({'name': '', 'type': 'string'})
-            st.rerun()
-    
     # Handle delete for add metrics
     if 'add_delete_index' in st.session_state:
         del st.session_state['add_metrics'][st.session_state['add_delete_index']]
         del st.session_state['add_delete_index']
         st.rerun()
     
-    with st.container():
+    with st.container(border=True):
         col1, col2 = st.columns(2)
         with col1:
             default_name = st.session_state.exercise_defaults.get('name', '')
@@ -217,6 +206,18 @@ if st.session_state.get("authentication_status"):
         
         # Metrics
         st.write("**Metrics** (optional)")
+        
+        # Add metric buttons
+        col_add_num, col_add_str = st.columns(2)
+        with col_add_num:
+            if st.button("Add Numeric Metric"):
+                st.session_state['add_metrics'].append({'name': '', 'type': 'numeric'})
+                st.rerun()
+        with col_add_str:
+            if st.button("Add String Metric"):
+                st.session_state['add_metrics'].append({'name': '', 'type': 'string'})
+                st.rerun()
+        
         metrics = []
         for i, metric in enumerate(st.session_state['add_metrics']):
             col1, col2, col3 = st.columns([3, 1, 1])
