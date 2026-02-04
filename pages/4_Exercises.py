@@ -104,7 +104,13 @@ if st.session_state.get("authentication_status"):
             st.session_state['add_metrics'].append({'name': '', 'type': 'string'})
             st.rerun()
     
-    with st.form("add_exercise"):
+    # Handle delete for add metrics
+    if 'add_delete_index' in st.session_state:
+        del st.session_state['add_metrics'][st.session_state['add_delete_index']]
+        del st.session_state['add_delete_index']
+        st.rerun()
+    
+    with st.container():
         col1, col2 = st.columns(2)
         with col1:
             default_name = st.session_state.exercise_defaults.get('name', '')
@@ -215,59 +221,51 @@ if st.session_state.get("authentication_status"):
         for i, metric in enumerate(st.session_state['add_metrics']):
             col1, col2, col3 = st.columns([3, 1, 1])
             with col1:
-                name = st.text_input(f"Metric {i+1} Name", value=metric['name'], key=f"add_metric_name_{i}")
+                name_metric = st.text_input(f"Metric {i+1} Name", value=metric['name'], key=f"add_metric_name_{i}")
             with col2:
                 type_index = 0 if metric['type'] == 'numeric' else 1
-                type_ = st.selectbox("Type", ["numeric", "string"], index=type_index, key=f"add_metric_type_{i}")
+                type_metric = st.selectbox("Type", ["numeric", "string"], index=type_index, key=f"add_metric_type_{i}")
             with col3:
                 if st.button("🗑️", key=f"add_metric_delete_{i}"):
                     st.session_state['add_delete_index'] = i
                     st.rerun()
-            metrics.append({"name": name, "type": type_})
+            metrics.append({"name": name_metric, "type": type_metric})
         
-        submitted = st.form_submit_button("Add Exercise")
-    
-    # Handle delete for add metrics
-    if 'add_delete_index' in st.session_state:
-        del st.session_state['add_metrics'][st.session_state['add_delete_index']]
-        del st.session_state['add_delete_index']
-        st.rerun()
-    
-    if submitted:
-        if not name or not instructions or not selected_categories:
-            st.error("Please fill in all required fields (Name, Instructions, Categories).")
-        else:
-            # Build metrics list (filter out empty names)
-            final_metrics = [m for m in metrics if m['name'].strip()]
-            
-            # Build exercise data
-            exercise_data = {
-                "name": name.strip(),
-                "instructions": instructions.strip(),
-                "category": [category_options[cat] for cat in selected_categories],
-                "muscle_groups": [mg_options[mg] for mg in selected_mg],
-                "additional_muscles": [additional_muscle_options[m] for m in selected_additional],
-                "equipment": [eq_options[eq] for eq in selected_eq],
-                "equipment_settings": equipment_settings,
-                "metrics": final_metrics
-            }
-            
-            # Add parent_id if variant
-            if is_variant:
-                exercise_data["parent_id"] = st.session_state.variant_parent_id
-            
-            # Add to database
-            exercise_id = db.add_exercise(exercise_data)
-            
-            # Clear defaults and metrics
-            st.session_state.exercise_defaults = {}
-            st.session_state['add_metrics'] = []
-            if 'variant_parent_id' in st.session_state:
-                del st.session_state.variant_parent_id
-            if 'current_parent' in st.session_state:
-                st.session_state.current_parent = None
-            
-            st.rerun()  # Refresh to show the new exercise
+        if st.button("Add Exercise"):
+            if not name or not instructions or not selected_categories:
+                st.error("Please fill in all required fields (Name, Instructions, Categories).")
+            else:
+                # Build metrics list (filter out empty names)
+                final_metrics = [m for m in metrics if m['name'].strip()]
+                
+                # Build exercise data
+                exercise_data = {
+                    "name": name.strip(),
+                    "instructions": instructions.strip(),
+                    "category": [category_options[cat] for cat in selected_categories],
+                    "muscle_groups": [mg_options[mg] for mg in selected_mg],
+                    "additional_muscles": [additional_muscle_options[m] for m in selected_additional],
+                    "equipment": [eq_options[eq] for eq in selected_eq],
+                    "equipment_settings": equipment_settings,
+                    "metrics": final_metrics
+                }
+                
+                # Add parent_id if variant
+                if is_variant:
+                    exercise_data["parent_id"] = st.session_state.variant_parent_id
+                
+                # Add to database
+                exercise_id = db.add_exercise(exercise_data)
+                
+                # Clear defaults and metrics
+                st.session_state.exercise_defaults = {}
+                st.session_state['add_metrics'] = []
+                if 'variant_parent_id' in st.session_state:
+                    del st.session_state.variant_parent_id
+                if 'current_parent' in st.session_state:
+                    st.session_state.current_parent = None
+                
+                st.rerun()  # Refresh to show the new exercise
     
     # Display existing exercises
     st.subheader("Existing Exercises")
@@ -291,8 +289,15 @@ if st.session_state.get("authentication_status"):
                     st.session_state[edit_metrics_key].append({'name': '', 'type': 'string'})
                     st.rerun()
             
+            # Handle delete for edit metrics
+            if 'edit_delete_index' in st.session_state:
+                ex_id, idx = st.session_state['edit_delete_index']
+                del st.session_state[f'edit_metrics_{ex_id}'][idx]
+                del st.session_state['edit_delete_index']
+                st.rerun()
+            
             # Always show edit form with pre-populated values
-            with st.form(f"edit_exercise_{ex['_id']}"):
+            with st.container():
                 col1, col2 = st.columns(2)
                 with col1:
                     # Name is read-only
@@ -388,50 +393,41 @@ if st.session_state.get("authentication_status"):
                 for i, metric in enumerate(st.session_state[edit_metrics_key]):
                     col1, col2, col3 = st.columns([3, 1, 1])
                     with col1:
-                        name = st.text_input(f"Metric {i+1} Name", value=metric['name'], key=f"edit_metric_name_{ex['_id']}_{i}")
+                        name_metric = st.text_input(f"Metric {i+1} Name", value=metric['name'], key=f"edit_metric_name_{ex['_id']}_{i}")
                     with col2:
                         type_index = 0 if metric['type'] == 'numeric' else 1
-                        type_ = st.selectbox("Type", ["numeric", "string"], index=type_index, key=f"edit_metric_type_{ex['_id']}_{i}")
+                        type_metric = st.selectbox("Type", ["numeric", "string"], index=type_index, key=f"edit_metric_type_{ex['_id']}_{i}")
                     with col3:
                         if st.button("🗑️", key=f"edit_metric_delete_{ex['_id']}_{i}"):
                             st.session_state['edit_delete_index'] = (str(ex['_id']), i)
                             st.rerun()
-                    metrics.append({"name": name, "type": type_})
+                    metrics.append({"name": name_metric, "type": type_metric})
                 
-                submitted = st.form_submit_button("Save Changes")
-            
-            # Handle delete for edit metrics
-            if 'edit_delete_index' in st.session_state:
-                ex_id, idx = st.session_state['edit_delete_index']
-                del st.session_state[f'edit_metrics_{ex_id}'][idx]
-                del st.session_state['edit_delete_index']
-                st.rerun()
-            
-            if submitted:
-                if not instructions or not selected_categories:
-                    st.error("Please fill in all required fields (Instructions, Categories).")
-                else:
-                    # Build metrics list (filter out empty names)
-                    final_metrics = [m for m in metrics if m['name'].strip()]
-                    
-                    # Build update data
-                    update_data = {
-                        "instructions": instructions.strip(),
-                        "category": [category_options[cat] for cat in selected_categories],
-                        "muscle_groups": [mg_options[mg] for mg in selected_mg],
-                        "additional_muscles": [additional_muscle_options[m] for m in selected_additional],
-                        "equipment": [eq_options[eq] for eq in selected_eq],
-                        "equipment_settings": equipment_settings,
-                        "metrics": final_metrics
-                    }
-                    
-                    # Update in database
-                    success = db.update_exercise(str(ex['_id']), update_data)
-                    if success:
-                        st.success("Exercise updated successfully!")
-                        st.rerun()
+                if st.button("Save Changes", key=f"save_{ex['_id']}"):
+                    if not instructions or not selected_categories:
+                        st.error("Please fill in all required fields (Instructions, Categories).")
                     else:
-                        st.error("Failed to update exercise.")
+                        # Build metrics list (filter out empty names)
+                        final_metrics = [m for m in metrics if m['name'].strip()]
+                        
+                        # Build update data
+                        update_data = {
+                            "instructions": instructions.strip(),
+                            "category": [category_options[cat] for cat in selected_categories],
+                            "muscle_groups": [mg_options[mg] for mg in selected_mg],
+                            "additional_muscles": [additional_muscle_options[m] for m in selected_additional],
+                            "equipment": [eq_options[eq] for eq in selected_eq],
+                            "equipment_settings": equipment_settings,
+                            "metrics": final_metrics
+                        }
+                        
+                        # Update in database
+                        success = db.update_exercise(str(ex['_id']), update_data)
+                        if success:
+                            st.success("Exercise updated successfully!")
+                            st.rerun()
+                        else:
+                            st.error("Failed to update exercise.")
 
     if exercises:
         for ex in exercises:
