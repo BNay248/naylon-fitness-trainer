@@ -307,6 +307,7 @@ if st.session_state.get("authentication_status"):
                     exercise_data["parent_id"] = st.session_state.variant_parent_id
                 
                 # Add to database
+                st.markdown("---")
                 exercise_id = db.add_exercise(exercise_data)
                 
                 # Clear defaults and metrics
