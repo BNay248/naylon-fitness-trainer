@@ -146,6 +146,23 @@ if st.session_state.get("authentication_status"):
             else:
                 selected_mg = []
             
+            # Additional Muscles - multiselect from muscles not in selected muscle groups
+            all_muscles = db.get_all_muscles()
+            selected_group_names = set(selected_mg)  # selected_mg is list of group names
+            additional_muscle_options = {}
+            for m in all_muscles:
+                if m.get('group') not in selected_group_names:
+                    additional_muscle_options[m['name']] = str(m['_id'])
+            
+            default_additional_names = []
+            if 'additional_muscles' in st.session_state.exercise_defaults:
+                for m_id in st.session_state.exercise_defaults['additional_muscles']:
+                    m = db.get_muscle(m_id)
+                    if m and m['name'] in additional_muscle_options:
+                        default_additional_names.append(m['name'])
+            
+            selected_additional = st.multiselect("Additional Muscles", options=list(additional_muscle_options.keys()), default=default_additional_names)
+
             # Equipment
             equipment = db.get_all_equipment()
             if equipment:
@@ -186,37 +203,55 @@ if st.session_state.get("authentication_status"):
                                 variants = char_data if isinstance(char_data, list) else []
                                 value = st.selectbox(f"{char_name}", options=variants, key=f"{eq_id}_{char_name}")
                                 equipment_settings[eq_id][char_name] = value
-            
-            # Additional Muscles - multiselect from muscles not in selected muscle groups
-            all_muscles = db.get_all_muscles()
-            selected_group_names = set(selected_mg)  # selected_mg is list of group names
-            additional_muscle_options = {}
-            for m in all_muscles:
-                if m.get('group') not in selected_group_names:
-                    additional_muscle_options[m['name']] = str(m['_id'])
-            
-            default_additional_names = []
-            if 'additional_muscles' in st.session_state.exercise_defaults:
-                for m_id in st.session_state.exercise_defaults['additional_muscles']:
-                    m = db.get_muscle(m_id)
-                    if m and m['name'] in additional_muscle_options:
-                        default_additional_names.append(m['name'])
-            
-            selected_additional = st.multiselect("Additional Muscles", options=list(additional_muscle_options.keys()), default=default_additional_names)
         
         # Metrics
         st.write("**Metrics** (optional)")
+        
+        if 'show_add_numeric_input' not in st.session_state:
+            st.session_state['show_add_numeric_input'] = False
+        if 'show_add_string_input' not in st.session_state:
+            st.session_state['show_add_string_input'] = False
         
         # Add metric buttons
         col_add_num, col_add_str = st.columns(2)
         with col_add_num:
             if st.button("Add Numeric Metric"):
-                st.session_state['add_metrics'].append({'name': '', 'type': 'numeric'})
-                st.rerun()
+                st.session_state['show_add_numeric_input'] = True
         with col_add_str:
             if st.button("Add String Metric"):
-                st.session_state['add_metrics'].append({'name': '', 'type': 'string'})
-                st.rerun()
+                st.session_state['show_add_string_input'] = True
+        
+        if st.session_state['show_add_numeric_input']:
+            name = st.text_input("Numeric Metric Name", key="add_numeric_name")
+            col_confirm, col_cancel = st.columns(2)
+            with col_confirm:
+                if st.button("Add", key="confirm_add_numeric"):
+                    if name.strip():
+                        st.session_state['add_metrics'].append({'name': name.strip(), 'type': 'numeric'})
+                        st.session_state['show_add_numeric_input'] = False
+                        st.rerun()
+                    else:
+                        st.error("Please enter a name for the metric.")
+            with col_cancel:
+                if st.button("Cancel", key="cancel_add_numeric"):
+                    st.session_state['show_add_numeric_input'] = False
+                    st.rerun()
+        
+        if st.session_state['show_add_string_input']:
+            name = st.text_input("String Metric Name", key="add_string_name")
+            col_confirm, col_cancel = st.columns(2)
+            with col_confirm:
+                if st.button("Add", key="confirm_add_string"):
+                    if name.strip():
+                        st.session_state['add_metrics'].append({'name': name.strip(), 'type': 'string'})
+                        st.session_state['show_add_string_input'] = False
+                        st.rerun()
+                    else:
+                        st.error("Please enter a name for the metric.")
+            with col_cancel:
+                if st.button("Cancel", key="cancel_add_string"):
+                    st.session_state['show_add_string_input'] = False
+                    st.rerun()
         
         metrics = []
         for i, metric in enumerate(st.session_state['add_metrics']):
@@ -279,16 +314,53 @@ if st.session_state.get("authentication_status"):
             if edit_metrics_key not in st.session_state:
                 st.session_state[edit_metrics_key] = ex.get('metrics', [])
             
+            show_numeric_key = f'show_add_numeric_input_{ex["_id"]}'
+            show_string_key = f'show_add_string_input_{ex["_id"]}'
+            if show_numeric_key not in st.session_state:
+                st.session_state[show_numeric_key] = False
+            if show_string_key not in st.session_state:
+                st.session_state[show_string_key] = False
+            
             # Add metric buttons
             col_add_num, col_add_str = st.columns(2)
             with col_add_num:
                 if st.button("Add Numeric Metric", key=f"add_num_{ex['_id']}"):
-                    st.session_state[edit_metrics_key].append({'name': '', 'type': 'numeric'})
-                    st.rerun()
+                    st.session_state[show_numeric_key] = True
             with col_add_str:
                 if st.button("Add String Metric", key=f"add_str_{ex['_id']}"):
-                    st.session_state[edit_metrics_key].append({'name': '', 'type': 'string'})
-                    st.rerun()
+                    st.session_state[show_string_key] = True
+            
+            if st.session_state[show_numeric_key]:
+                name = st.text_input("Numeric Metric Name", key=f"add_numeric_name_{ex['_id']}")
+                col_confirm, col_cancel = st.columns(2)
+                with col_confirm:
+                    if st.button("Add", key=f"confirm_add_numeric_{ex['_id']}"):
+                        if name.strip():
+                            st.session_state[edit_metrics_key].append({'name': name.strip(), 'type': 'numeric'})
+                            st.session_state[show_numeric_key] = False
+                            st.rerun()
+                        else:
+                            st.error("Please enter a name for the metric.")
+                with col_cancel:
+                    if st.button("Cancel", key=f"cancel_add_numeric_{ex['_id']}"):
+                        st.session_state[show_numeric_key] = False
+                        st.rerun()
+            
+            if st.session_state[show_string_key]:
+                name = st.text_input("String Metric Name", key=f"add_string_name_{ex['_id']}")
+                col_confirm, col_cancel = st.columns(2)
+                with col_confirm:
+                    if st.button("Add", key=f"confirm_add_string_{ex['_id']}"):
+                        if name.strip():
+                            st.session_state[edit_metrics_key].append({'name': name.strip(), 'type': 'string'})
+                            st.session_state[show_string_key] = False
+                            st.rerun()
+                        else:
+                            st.error("Please enter a name for the metric.")
+                with col_cancel:
+                    if st.button("Cancel", key=f"cancel_add_string_{ex['_id']}"):
+                        st.session_state[show_string_key] = False
+                        st.rerun()
             
             # Handle delete for edit metrics
             if 'edit_delete_index' in st.session_state:
@@ -337,6 +409,18 @@ if st.session_state.get("authentication_status"):
                         selected_mg = st.multiselect("Muscle Groups", options=list(mg_options.keys()), default=current_mg_names)
                     else:
                         selected_mg = []
+
+                    # Additional Muscles
+                    all_muscles = db.get_all_muscles()
+                    additional_muscle_options = {m['name']: str(m['_id']) for m in all_muscles}
+                    
+                    current_additional_names = []
+                    for m_id in ex.get('additional_muscles', []):
+                        m = db.get_muscle(m_id)
+                        if m:
+                            current_additional_names.append(m['name'])
+                    
+                    selected_additional = st.multiselect("Additional Muscles", options=list(additional_muscle_options.keys()), default=current_additional_names)
                     
                     # Equipment
                     equipment = db.get_all_equipment()
@@ -375,18 +459,6 @@ if st.session_state.get("authentication_status"):
                                             current_value = ex.get('equipment_settings', {}).get(eq_id, {}).get(char_name, variants[0] if variants else '')
                                             value = st.selectbox(f"{char_name}", options=variants, index=variants.index(current_value) if current_value in variants else 0, key=f"edit_{eq_id}_{char_name}")
                                             equipment_settings[eq_id][char_name] = value
-                    
-                    # Additional Muscles
-                    all_muscles = db.get_all_muscles()
-                    additional_muscle_options = {m['name']: str(m['_id']) for m in all_muscles}
-                    
-                    current_additional_names = []
-                    for m_id in ex.get('additional_muscles', []):
-                        m = db.get_muscle(m_id)
-                        if m:
-                            current_additional_names.append(m['name'])
-                    
-                    selected_additional = st.multiselect("Additional Muscles", options=list(additional_muscle_options.keys()), default=current_additional_names)
                 
                 # Metrics
                 st.write("**Metrics** (optional)")
