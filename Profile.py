@@ -5,7 +5,7 @@ from yaml.loader import SafeLoader
 import bcrypt
 
 # Must be the first Streamlit command
-st.set_page_config(page_title="Naylon Fitness Portal", layout="wide")
+st.set_page_config(page_title="Naylon Fitness Portal", page_icon="NFP.jpg", layout="wide")
 
 # Load authentication config
 with open('config.yaml') as file:

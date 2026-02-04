@@ -5,6 +5,9 @@ import streamlit_authenticator as stauth
 import yaml
 from yaml.loader import SafeLoader
 
+# Page config
+st.set_page_config(page_title="Naylon Fitness Portal", page_icon="NFP.jpg", layout="wide")
+
 # Load authentication config
 with open('config.yaml') as file:
     config = yaml.load(file, Loader=SafeLoader)
