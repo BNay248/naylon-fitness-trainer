@@ -85,6 +85,25 @@ if st.session_state.get("authentication_status"):
         else:
             st.warning("No exercises available to create variants from.")
     
+    # Metrics management for add form
+    if 'add_metrics' not in st.session_state:
+        st.session_state['add_metrics'] = st.session_state.exercise_defaults.get('metrics', [])
+    else:
+        # Sync with defaults if changed
+        if st.session_state.exercise_defaults.get('metrics', []) != st.session_state['add_metrics']:
+            st.session_state['add_metrics'] = st.session_state.exercise_defaults.get('metrics', [])
+    
+    # Add metric buttons
+    col_add_num, col_add_str = st.columns(2)
+    with col_add_num:
+        if st.button("Add Numeric Metric"):
+            st.session_state['add_metrics'].append({'name': '', 'type': 'numeric'})
+            st.rerun()
+    with col_add_str:
+        if st.button("Add String Metric"):
+            st.session_state['add_metrics'].append({'name': '', 'type': 'string'})
+            st.rerun()
+    
     with st.form("add_exercise"):
         col1, col2 = st.columns(2)
         with col1:
@@ -192,37 +211,34 @@ if st.session_state.get("authentication_status"):
         
         # Metrics
         st.write("**Metrics** (optional)")
-        default_metrics = st.session_state.exercise_defaults.get('metrics', [{}, {}, {}])
-        while len(default_metrics) < 3:
-            default_metrics.append({})
-        
-        col3, col4 = st.columns(2)
-        with col3:
-            metric1_name = st.text_input("Metric 1 Name", value=default_metrics[0].get('name', ''))
-            metric2_name = st.text_input("Metric 2 Name", value=default_metrics[1].get('name', ''))
-            metric3_name = st.text_input("Metric 3 Name", value=default_metrics[2].get('name', ''))
-        with col4:
-            metric1_type_index = 0 if default_metrics[0].get('type') == 'string' else 0
-            metric1_type = st.selectbox("Type", ["numeric", "string"], index=metric1_type_index, key="m1")
-            metric2_type_index = 0 if default_metrics[1].get('type') == 'string' else 0
-            metric2_type = st.selectbox("Type", ["numeric", "string"], index=metric2_type_index, key="m2")
-            metric3_type_index = 0 if default_metrics[2].get('type') == 'string' else 0
-            metric3_type = st.selectbox("Type", ["numeric", "string"], index=metric3_type_index, key="m3")
+        metrics = []
+        for i, metric in enumerate(st.session_state['add_metrics']):
+            col1, col2, col3 = st.columns([3, 1, 1])
+            with col1:
+                name = st.text_input(f"Metric {i+1} Name", value=metric['name'], key=f"add_metric_name_{i}")
+            with col2:
+                type_index = 0 if metric['type'] == 'numeric' else 1
+                type_ = st.selectbox("Type", ["numeric", "string"], index=type_index, key=f"add_metric_type_{i}")
+            with col3:
+                if st.button("🗑️", key=f"add_metric_delete_{i}"):
+                    st.session_state['add_delete_index'] = i
+                    st.rerun()
+            metrics.append({"name": name, "type": type_})
         
         submitted = st.form_submit_button("Add Exercise")
+    
+    # Handle delete for add metrics
+    if 'add_delete_index' in st.session_state:
+        del st.session_state['add_metrics'][st.session_state['add_delete_index']]
+        del st.session_state['add_delete_index']
+        st.rerun()
     
     if submitted:
         if not name or not instructions or not selected_categories:
             st.error("Please fill in all required fields (Name, Instructions, Categories).")
         else:
-            # Build metrics list
-            metrics = []
-            if metric1_name.strip():
-                metrics.append({"name": metric1_name.strip(), "type": metric1_type})
-            if metric2_name.strip():
-                metrics.append({"name": metric2_name.strip(), "type": metric2_type})
-            if metric3_name.strip():
-                metrics.append({"name": metric3_name.strip(), "type": metric3_type})
+            # Build metrics list (filter out empty names)
+            final_metrics = [m for m in metrics if m['name'].strip()]
             
             # Build exercise data
             exercise_data = {
@@ -233,7 +249,7 @@ if st.session_state.get("authentication_status"):
                 "additional_muscles": [additional_muscle_options[m] for m in selected_additional],
                 "equipment": [eq_options[eq] for eq in selected_eq],
                 "equipment_settings": equipment_settings,
-                "metrics": metrics
+                "metrics": final_metrics
             }
             
             # Add parent_id if variant
@@ -243,8 +259,9 @@ if st.session_state.get("authentication_status"):
             # Add to database
             exercise_id = db.add_exercise(exercise_data)
             
-            # Clear defaults
+            # Clear defaults and metrics
             st.session_state.exercise_defaults = {}
+            st.session_state['add_metrics'] = []
             if 'variant_parent_id' in st.session_state:
                 del st.session_state.variant_parent_id
             if 'current_parent' in st.session_state:
@@ -258,223 +275,164 @@ if st.session_state.get("authentication_status"):
     @st.fragment
     def display_exercise(ex):
         with st.expander(f"**{ex['name']}**"):
-            # Check if editing this exercise
-            if st.session_state.get('editing_exercise') == str(ex['_id']):
-                # Edit mode
-                st.write("**Editing Exercise**")
-                
-                with st.form(f"edit_exercise_{ex['_id']}"):
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        # Name is read-only
-                        st.text_input("Exercise Name", value=ex['name'], disabled=True, help="Name cannot be changed")
-                        
-                        instructions = st.text_area("Instructions *", value=ex['instructions'], help="Required field")
-                        
-                        # Category
-                        categories = db.get_all_categories()
-                        if categories:
-                            category_options = {cat['name']: str(cat['_id']) for cat in categories}
-                            current_cat_names = []
-                            cat_ids = ex.get('category', [])
-                            if isinstance(cat_ids, str):
-                                cat_ids = [cat_ids]
-                            for cat_id in cat_ids:
-                                cat = db.get_category(cat_id)
-                                if cat:
-                                    current_cat_names.append(cat['name'])
-                            
-                            selected_categories = st.multiselect("Categories *", options=list(category_options.keys()), default=current_cat_names, help="Required field")
-                        else:
-                            selected_categories = []
-                    
-                    with col2:
-                        # Muscle Groups
-                        muscle_groups = db.get_all_muscle_groups()
-                        if muscle_groups:
-                            mg_options = {mg['name']: str(mg['_id']) for mg in muscle_groups}
-                            current_mg_names = []
-                            for mg_id in ex.get('muscle_groups', []):
-                                mg = db.get_muscle_group(mg_id)
-                                if mg:
-                                    current_mg_names.append(mg['name'])
-                            
-                            selected_mg = st.multiselect("Muscle Groups", options=list(mg_options.keys()), default=current_mg_names)
-                        else:
-                            selected_mg = []
-                        
-                        # Equipment
-                        equipment = db.get_all_equipment()
-                        if equipment:
-                            eq_options = {eq['name']: str(eq['_id']) for eq in equipment}
-                            current_eq_names = []
-                            for eq_id in ex.get('equipment', []):
-                                eq = db.get_equipment(eq_id)
-                                if eq:
-                                    current_eq_names.append(eq['name'])
-                            
-                            selected_eq = st.multiselect("Equipment", options=list(eq_options.keys()), default=current_eq_names)
-                        else:
-                            selected_eq = []
-                        
-                        # Equipment characteristics
-                        equipment_settings = {}
-                        if selected_eq:
-                            st.write("**Equipment Characteristics:**")
-                            for eq_name in selected_eq:
-                                eq_id = eq_options[eq_name]
-                                eq_data = db.get_equipment(eq_id)
-                                if eq_data and 'characteristics' in eq_data:
-                                    st.write(f"**{eq_name}:**")
-                                    equipment_settings[eq_id] = {}
-                                    for char_name, char_data in eq_data['characteristics'].items():
-                                        if isinstance(char_data, dict):
-                                            char_type = char_data.get('type', 'variant')
-                                            if char_type == 'numeric':
-                                                # Get current value
-                                                current_value = ex.get('equipment_settings', {}).get(eq_id, {}).get(char_name, 0)
-                                                value = st.number_input(f"{char_name}", value=current_value, key=f"edit_{eq_id}_{char_name}")
-                                                equipment_settings[eq_id][char_name] = value
-                                            elif char_type == 'variant':
-                                                variants = char_data.get('variants', [])
-                                                current_value = ex.get('equipment_settings', {}).get(eq_id, {}).get(char_name, variants[0] if variants else '')
-                                                value = st.selectbox(f"{char_name}", options=variants, index=variants.index(current_value) if current_value in variants else 0, key=f"edit_{eq_id}_{char_name}")
-                                                equipment_settings[eq_id][char_name] = value
-                        
-                        # Additional Muscles
-                        all_muscles = db.get_all_muscles()
-                        additional_muscle_options = {m['name']: str(m['_id']) for m in all_muscles}
-                        
-                        current_additional_names = []
-                        for m_id in ex.get('additional_muscles', []):
-                            m = db.get_muscle(m_id)
-                            if m:
-                                current_additional_names.append(m['name'])
-                        
-                        selected_additional = st.multiselect("Additional Muscles", options=list(additional_muscle_options.keys()), default=current_additional_names)
-                    
-                    # Metrics
-                    st.write("**Metrics** (optional)")
-                    current_metrics = ex.get('metrics', [{}, {}, {}])
-                    while len(current_metrics) < 3:
-                        current_metrics.append({})
-                    
-                    col3, col4 = st.columns(2)
-                    with col3:
-                        metric1_name = st.text_input("Metric 1 Name", value=current_metrics[0].get('name', ''))
-                        metric2_name = st.text_input("Metric 2 Name", value=current_metrics[1].get('name', ''))
-                        metric3_name = st.text_input("Metric 3 Name", value=current_metrics[2].get('name', ''))
-                    with col4:
-                        metric1_type = st.selectbox("Type", ["numeric", "string"], index=0 if current_metrics[0].get('type') == 'string' else 0, key=f"edit_m1_{ex['_id']}")
-                        metric2_type = st.selectbox("Type", ["numeric", "string"], index=0 if current_metrics[1].get('type') == 'string' else 0, key=f"edit_m2_{ex['_id']}")
-                        metric3_type = st.selectbox("Type", ["numeric", "string"], index=0 if current_metrics[2].get('type') == 'string' else 0, key=f"edit_m3_{ex['_id']}")
-                    
-                    col_save, col_cancel = st.columns(2)
-                    with col_save:
-                        submitted = st.form_submit_button("Save Changes")
-                    with col_cancel:
-                        cancel = st.form_submit_button("Cancel")
-                
-                if submitted:
-                    if not instructions or not selected_categories:
-                        st.error("Please fill in all required fields (Instructions, Categories).")
-                    else:
-                        # Build metrics list
-                        metrics = []
-                        if metric1_name.strip():
-                            metrics.append({"name": metric1_name.strip(), "type": metric1_type})
-                        if metric2_name.strip():
-                            metrics.append({"name": metric2_name.strip(), "type": metric2_type})
-                        if metric3_name.strip():
-                            metrics.append({"name": metric3_name.strip(), "type": metric3_type})
-                        
-                        # Build update data
-                        update_data = {
-                            "instructions": instructions.strip(),
-                            "category": [category_options[cat] for cat in selected_categories],
-                            "muscle_groups": [mg_options[mg] for mg in selected_mg],
-                            "additional_muscles": [additional_muscle_options[m] for m in selected_additional],
-                            "equipment": [eq_options[eq] for eq in selected_eq],
-                            "equipment_settings": equipment_settings,
-                            "metrics": metrics
-                        }
-                        
-                        # Update in database
-                        success = db.update_exercise(str(ex['_id']), update_data)
-                        if success:
-                            st.success("Exercise updated successfully!")
-                            st.session_state['editing_exercise'] = None
-                            st.rerun()
-                        else:
-                            st.error("Failed to update exercise.")
-                
-                if cancel:
-                    st.session_state['editing_exercise'] = None
+            # Metrics management for edit form
+            edit_metrics_key = f'edit_metrics_{ex["_id"]}'
+            if edit_metrics_key not in st.session_state:
+                st.session_state[edit_metrics_key] = ex.get('metrics', [])
+            
+            # Add metric buttons
+            col_add_num, col_add_str = st.columns(2)
+            with col_add_num:
+                if st.button("Add Numeric Metric", key=f"add_num_{ex['_id']}"):
+                    st.session_state[edit_metrics_key].append({'name': '', 'type': 'numeric'})
+                    st.rerun()
+            with col_add_str:
+                if st.button("Add String Metric", key=f"add_str_{ex['_id']}"):
+                    st.session_state[edit_metrics_key].append({'name': '', 'type': 'string'})
                     st.rerun()
             
-            else:
-                # Display mode
-                if 'parent_id' in ex:
-                    parent = db.get_exercise(ex['parent_id'])
-                    st.write(f"**Variant of:** {parent['name'] if parent else 'Unknown'}")
-                st.write(f"**Instructions:** {ex['instructions']}")
-                # Get category names
-                cat_names = []
-                cat_ids = ex.get('category', [])
-                if isinstance(cat_ids, str):
-                    cat_ids = [cat_ids]  # Handle old single category
-                for cat_id in cat_ids:
-                    cat = db.get_category(cat_id)
-                    if cat:
-                        cat_names.append(cat['name'])
-                if cat_names:
-                    st.write(f"**Categories:** {', '.join(cat_names)}")
-                else:
-                    st.write("**Categories:** Unknown")
-                # Muscle groups
-                mg_names = []
-                for mg_id in ex.get('muscle_groups', []):
-                    mg = db.get_muscle_group(mg_id)
-                    if mg:
-                        mg_names.append(mg['name'])
-                if mg_names:
-                    st.write(f"**Muscle Groups:** {', '.join(mg_names)}")
-                # Additional muscles
-                additional_names = []
-                for m_id in ex.get('additional_muscles', []):
-                    m = db.get_muscle(m_id)
-                    if m:
-                        additional_names.append(m['name'])
-                if additional_names:
-                    st.write(f"**Additional Muscles:** {', '.join(additional_names)}")
-                # Equipment
-                eq_names = []
-                for eq_id in ex.get('equipment', []):
-                    eq = db.get_equipment(eq_id)
-                    if eq:
-                        eq_names.append(eq['name'])
-                if eq_names:
-                    st.write(f"**Equipment:** {', '.join(eq_names)}")
-                    # Show equipment settings
-                    equipment_settings = ex.get('equipment_settings', {})
-                    if equipment_settings:
-                        for eq_id, settings in equipment_settings.items():
+            # Always show edit form with pre-populated values
+            with st.form(f"edit_exercise_{ex['_id']}"):
+                col1, col2 = st.columns(2)
+                with col1:
+                    # Name is read-only
+                    st.text_input("Exercise Name", value=ex['name'], disabled=True, help="Name cannot be changed")
+                    
+                    instructions = st.text_area("Instructions *", value=ex['instructions'], help="Required field")
+                    
+                    # Category
+                    categories = db.get_all_categories()
+                    if categories:
+                        category_options = {cat['name']: str(cat['_id']) for cat in categories}
+                        current_cat_names = []
+                        cat_ids = ex.get('category', [])
+                        if isinstance(cat_ids, str):
+                            cat_ids = [cat_ids]
+                        for cat_id in cat_ids:
+                            cat = db.get_category(cat_id)
+                            if cat:
+                                current_cat_names.append(cat['name'])
+                        
+                        selected_categories = st.multiselect("Categories *", options=list(category_options.keys()), default=current_cat_names, help="Required field")
+                    else:
+                        selected_categories = []
+                
+                with col2:
+                    # Muscle Groups
+                    muscle_groups = db.get_all_muscle_groups()
+                    if muscle_groups:
+                        mg_options = {mg['name']: str(mg['_id']) for mg in muscle_groups}
+                        current_mg_names = []
+                        for mg_id in ex.get('muscle_groups', []):
+                            mg = db.get_muscle_group(mg_id)
+                            if mg:
+                                current_mg_names.append(mg['name'])
+                        
+                        selected_mg = st.multiselect("Muscle Groups", options=list(mg_options.keys()), default=current_mg_names)
+                    else:
+                        selected_mg = []
+                    
+                    # Equipment
+                    equipment = db.get_all_equipment()
+                    if equipment:
+                        eq_options = {eq['name']: str(eq['_id']) for eq in equipment}
+                        current_eq_names = []
+                        for eq_id in ex.get('equipment', []):
                             eq = db.get_equipment(eq_id)
                             if eq:
-                                st.write(f"**{eq['name']} Settings:**")
-                                for char_name, value in settings.items():
-                                    st.write(f"- {char_name}: {value}")
-                # Metrics
-                if ex.get('metrics'):
-                    st.write("**Metrics:**")
-                    for metric in ex['metrics']:
-                        st.write(f"- {metric['name']} ({metric['type']})")
+                                current_eq_names.append(eq['name'])
+                        
+                        selected_eq = st.multiselect("Equipment", options=list(eq_options.keys()), default=current_eq_names)
+                    else:
+                        selected_eq = []
+                    
+                    # Equipment characteristics
+                    equipment_settings = {}
+                    if selected_eq:
+                        st.write("**Equipment Characteristics:**")
+                        for eq_name in selected_eq:
+                            eq_id = eq_options[eq_name]
+                            eq_data = db.get_equipment(eq_id)
+                            if eq_data and 'characteristics' in eq_data:
+                                st.write(f"**{eq_name}:**")
+                                equipment_settings[eq_id] = {}
+                                for char_name, char_data in eq_data['characteristics'].items():
+                                    if isinstance(char_data, dict):
+                                        char_type = char_data.get('type', 'variant')
+                                        if char_type == 'numeric':
+                                            # Get current value
+                                            current_value = ex.get('equipment_settings', {}).get(eq_id, {}).get(char_name, 0)
+                                            value = st.number_input(f"{char_name}", value=current_value, key=f"edit_{eq_id}_{char_name}")
+                                            equipment_settings[eq_id][char_name] = value
+                                        elif char_type == 'variant':
+                                            variants = char_data.get('variants', [])
+                                            current_value = ex.get('equipment_settings', {}).get(eq_id, {}).get(char_name, variants[0] if variants else '')
+                                            value = st.selectbox(f"{char_name}", options=variants, index=variants.index(current_value) if current_value in variants else 0, key=f"edit_{eq_id}_{char_name}")
+                                            equipment_settings[eq_id][char_name] = value
+                    
+                    # Additional Muscles
+                    all_muscles = db.get_all_muscles()
+                    additional_muscle_options = {m['name']: str(m['_id']) for m in all_muscles}
+                    
+                    current_additional_names = []
+                    for m_id in ex.get('additional_muscles', []):
+                        m = db.get_muscle(m_id)
+                        if m:
+                            current_additional_names.append(m['name'])
+                    
+                    selected_additional = st.multiselect("Additional Muscles", options=list(additional_muscle_options.keys()), default=current_additional_names)
                 
-                # Edit button
-                if st.button("Edit Exercise", key=f"edit_{ex['_id']}"):
-                    st.session_state['editing_exercise'] = str(ex['_id'])
-                    st.rerun()
-    
+                # Metrics
+                st.write("**Metrics** (optional)")
+                metrics = []
+                for i, metric in enumerate(st.session_state[edit_metrics_key]):
+                    col1, col2, col3 = st.columns([3, 1, 1])
+                    with col1:
+                        name = st.text_input(f"Metric {i+1} Name", value=metric['name'], key=f"edit_metric_name_{ex['_id']}_{i}")
+                    with col2:
+                        type_index = 0 if metric['type'] == 'numeric' else 1
+                        type_ = st.selectbox("Type", ["numeric", "string"], index=type_index, key=f"edit_metric_type_{ex['_id']}_{i}")
+                    with col3:
+                        if st.button("🗑️", key=f"edit_metric_delete_{ex['_id']}_{i}"):
+                            st.session_state['edit_delete_index'] = (str(ex['_id']), i)
+                            st.rerun()
+                    metrics.append({"name": name, "type": type_})
+                
+                submitted = st.form_submit_button("Save Changes")
+            
+            # Handle delete for edit metrics
+            if 'edit_delete_index' in st.session_state:
+                ex_id, idx = st.session_state['edit_delete_index']
+                del st.session_state[f'edit_metrics_{ex_id}'][idx]
+                del st.session_state['edit_delete_index']
+                st.rerun()
+            
+            if submitted:
+                if not instructions or not selected_categories:
+                    st.error("Please fill in all required fields (Instructions, Categories).")
+                else:
+                    # Build metrics list (filter out empty names)
+                    final_metrics = [m for m in metrics if m['name'].strip()]
+                    
+                    # Build update data
+                    update_data = {
+                        "instructions": instructions.strip(),
+                        "category": [category_options[cat] for cat in selected_categories],
+                        "muscle_groups": [mg_options[mg] for mg in selected_mg],
+                        "additional_muscles": [additional_muscle_options[m] for m in selected_additional],
+                        "equipment": [eq_options[eq] for eq in selected_eq],
+                        "equipment_settings": equipment_settings,
+                        "metrics": final_metrics
+                    }
+                    
+                    # Update in database
+                    success = db.update_exercise(str(ex['_id']), update_data)
+                    if success:
+                        st.success("Exercise updated successfully!")
+                        st.rerun()
+                    else:
+                        st.error("Failed to update exercise.")
+
     if exercises:
         for ex in exercises:
             display_exercise(ex)
