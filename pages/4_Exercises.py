@@ -88,10 +88,13 @@ if st.session_state.get("authentication_status"):
     # Metrics management for add form
     if 'add_metrics' not in st.session_state:
         st.session_state['add_metrics'] = st.session_state.exercise_defaults.get('metrics', [])
+        st.session_state['previous_defaults'] = st.session_state.exercise_defaults.get('metrics', [])
     else:
         # Sync with defaults if changed
-        if st.session_state.exercise_defaults.get('metrics', []) != st.session_state['add_metrics']:
-            st.session_state['add_metrics'] = st.session_state.exercise_defaults.get('metrics', [])
+        current_defaults = st.session_state.exercise_defaults.get('metrics', [])
+        if st.session_state.get('previous_defaults', []) != current_defaults:
+            st.session_state['add_metrics'] = current_defaults
+            st.session_state['previous_defaults'] = current_defaults
     
     # Handle delete for add metrics
     if 'add_delete_index' in st.session_state:
@@ -147,13 +150,10 @@ if st.session_state.get("authentication_status"):
             
             # Additional Muscles - multiselect from muscles not in selected muscle groups
             all_muscles = db.get_all_muscles()
-            selected_group_ids = set()
-            for name in selected_mg:
-                if name in mg_options:
-                    selected_group_ids.add(mg_options[name])
+            selected_group_names = set(selected_mg)
             additional_muscle_options = {}
             for m in all_muscles:
-                if m.get('group') not in selected_group_ids:
+                if m.get('group') not in selected_group_names:
                     additional_muscle_options[m['name']] = str(m['_id'])
             
             default_additional_names = []
@@ -351,13 +351,10 @@ if st.session_state.get("authentication_status"):
 
                     # Additional Muscles
                     all_muscles = db.get_all_muscles()
-                    selected_group_ids = set()
-                    for name in selected_mg:
-                        if name in mg_options:
-                            selected_group_ids.add(mg_options[name])
+                    selected_group_names = set(selected_mg)
                     additional_muscle_options = {}
                     for m in all_muscles:
-                        if m.get('group') not in selected_group_ids:
+                        if m.get('group') not in selected_group_names:
                             additional_muscle_options[m['name']] = str(m['_id'])
                     
                     current_additional_names = []
