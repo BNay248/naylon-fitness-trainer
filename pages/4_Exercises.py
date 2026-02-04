@@ -210,51 +210,16 @@ if st.session_state.get("authentication_status"):
         # Metrics
         st.write("**Metrics** (optional)")
         
-        if 'show_add_numeric_input' not in st.session_state:
-            st.session_state['show_add_numeric_input'] = False
-        if 'show_add_string_input' not in st.session_state:
-            st.session_state['show_add_string_input'] = False
-        
         # Add metric buttons
         col_add_num, col_add_str = st.columns(2)
         with col_add_num:
             if st.button("Add Numeric Metric"):
-                st.session_state['show_add_numeric_input'] = True
+                st.session_state['add_metrics'].append({'name': '', 'type': 'numeric'})
+                st.rerun()
         with col_add_str:
             if st.button("Add String Metric"):
-                st.session_state['show_add_string_input'] = True
-        
-        if st.session_state['show_add_numeric_input']:
-            name = st.text_input("Numeric Metric Name", key="add_numeric_name")
-            col_confirm, col_cancel = st.columns(2)
-            with col_confirm:
-                if st.button("Add", key="confirm_add_numeric"):
-                    if name.strip():
-                        st.session_state['add_metrics'].append({'name': name.strip(), 'type': 'numeric'})
-                        st.session_state['show_add_numeric_input'] = False
-                        st.rerun()
-                    else:
-                        st.error("Please enter a name for the metric.")
-            with col_cancel:
-                if st.button("Cancel", key="cancel_add_numeric"):
-                    st.session_state['show_add_numeric_input'] = False
-                    st.rerun()
-        
-        if st.session_state['show_add_string_input']:
-            name = st.text_input("String Metric Name", key="add_string_name")
-            col_confirm, col_cancel = st.columns(2)
-            with col_confirm:
-                if st.button("Add", key="confirm_add_string"):
-                    if name.strip():
-                        st.session_state['add_metrics'].append({'name': name.strip(), 'type': 'string'})
-                        st.session_state['show_add_string_input'] = False
-                        st.rerun()
-                    else:
-                        st.error("Please enter a name for the metric.")
-            with col_cancel:
-                if st.button("Cancel", key="cancel_add_string"):
-                    st.session_state['show_add_string_input'] = False
-                    st.rerun()
+                st.session_state['add_metrics'].append({'name': '', 'type': 'string'})
+                st.rerun()
         
         col_num_metrics, col_str_metrics = st.columns(2)
         with col_num_metrics:
@@ -331,53 +296,16 @@ if st.session_state.get("authentication_status"):
             if edit_metrics_key not in st.session_state:
                 st.session_state[edit_metrics_key] = ex.get('metrics', [])
             
-            show_numeric_key = f'show_add_numeric_input_{ex["_id"]}'
-            show_string_key = f'show_add_string_input_{ex["_id"]}'
-            if show_numeric_key not in st.session_state:
-                st.session_state[show_numeric_key] = False
-            if show_string_key not in st.session_state:
-                st.session_state[show_string_key] = False
-            
             # Add metric buttons
             col_add_num, col_add_str = st.columns(2)
             with col_add_num:
                 if st.button("Add Numeric Metric", key=f"add_num_{ex['_id']}"):
-                    st.session_state[show_numeric_key] = True
+                    st.session_state[edit_metrics_key].append({'name': '', 'type': 'numeric'})
+                    st.rerun()
             with col_add_str:
                 if st.button("Add String Metric", key=f"add_str_{ex['_id']}"):
-                    st.session_state[show_string_key] = True
-            
-            if st.session_state[show_numeric_key]:
-                name = st.text_input("Numeric Metric Name", key=f"add_numeric_name_{ex['_id']}")
-                col_confirm, col_cancel = st.columns(2)
-                with col_confirm:
-                    if st.button("Add", key=f"confirm_add_numeric_{ex['_id']}"):
-                        if name.strip():
-                            st.session_state[edit_metrics_key].append({'name': name.strip(), 'type': 'numeric'})
-                            st.session_state[show_numeric_key] = False
-                            st.rerun()
-                        else:
-                            st.error("Please enter a name for the metric.")
-                with col_cancel:
-                    if st.button("Cancel", key=f"cancel_add_numeric_{ex['_id']}"):
-                        st.session_state[show_numeric_key] = False
-                        st.rerun()
-            
-            if st.session_state[show_string_key]:
-                name = st.text_input("String Metric Name", key=f"add_string_name_{ex['_id']}")
-                col_confirm, col_cancel = st.columns(2)
-                with col_confirm:
-                    if st.button("Add", key=f"confirm_add_string_{ex['_id']}"):
-                        if name.strip():
-                            st.session_state[edit_metrics_key].append({'name': name.strip(), 'type': 'string'})
-                            st.session_state[show_string_key] = False
-                            st.rerun()
-                        else:
-                            st.error("Please enter a name for the metric.")
-                with col_cancel:
-                    if st.button("Cancel", key=f"cancel_add_string_{ex['_id']}"):
-                        st.session_state[show_string_key] = False
-                        st.rerun()
+                    st.session_state[edit_metrics_key].append({'name': '', 'type': 'string'})
+                    st.rerun()
             
             # Handle delete for edit metrics
             if 'edit_delete_index' in st.session_state:
