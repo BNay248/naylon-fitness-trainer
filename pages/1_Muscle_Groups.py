@@ -88,7 +88,6 @@ if st.session_state.get("authentication_status"):
                 with col_b:
                     if st.button("Delete", key=f"del_m_{str(row['_id'])}"):
                         db.db.muscles.delete_one({"_id": row['_id']})
-                        st.success(f"✅ Muscle '{row['name']}' deleted!")
                         st.rerun()
         else:
             st.info("No muscles yet. Add some to get started!")
@@ -111,7 +110,6 @@ if st.session_state.get("authentication_status"):
                         "muscles": []
                     }
                     db.db.muscle_groups.insert_one(muscle_group)
-                    st.success(f"✅ Muscle group '{name}' added!")
                     st.rerun()
                 else:
                     st.error("Please enter a muscle group name")
@@ -162,7 +160,6 @@ if st.session_state.get("authentication_status"):
                     
                     if st.button("Delete", key=f"del_mg_{str(row['_id'])}"):
                         db.db.muscle_groups.delete_one({"_id": row['_id']})
-                        st.success(f"✅ Muscle group '{row['name']}' deleted!")
                         st.rerun()
         else:
             st.info("No muscle groups yet. Add some to get started!")

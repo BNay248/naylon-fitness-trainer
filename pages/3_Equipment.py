@@ -60,11 +60,6 @@ if st.session_state.get("authentication_status"):
                         }
                         db.db.equipment.insert_one(equipment_item)
                         added_count += 1
-                    
-                    if added_count == 1:
-                        st.success(f"✅ Equipment '{equipment_names[0]}' added!")
-                    else:
-                        st.success(f"✅ {added_count} equipment items added!")
                     st.rerun()
                 else:
                     st.error("Please enter at least one equipment name")
@@ -85,8 +80,27 @@ if st.session_state.get("authentication_status"):
                 characteristics = item.get('characteristics', {})
                 if characteristics:
                     st.write("**Characteristics:**")
-                    for char_name, variants in characteristics.items():
-                        st.write(f"- **{char_name}:** {', '.join(variants) if isinstance(variants, list) else variants}")
+                    for char_name, char_data in characteristics.items():
+                        col1, col2 = st.columns([4, 1])
+                        with col1:
+                            if isinstance(char_data, dict):
+                                char_type = char_data.get('type', 'variant')
+                                if char_type == 'numeric':
+                                    st.write(f"- **{char_name}:** Numeric (value entered in workouts)")
+                                else:  # variant
+                                    variants = char_data.get('variants', [])
+                                    st.write(f"- **{char_name}:** {', '.join(variants)}")
+                            else:
+                                # Legacy format - assume variant
+                                st.write(f"- **{char_name}:** {', '.join(char_data) if isinstance(char_data, list) else char_data}")
+                        with col2:
+                            if st.button("🗑️", key=f"del_char_{str(item['_id'])}_{char_name}", help=f"Delete {char_name}"):
+                                del characteristics[char_name]
+                                db.db.equipment.update_one(
+                                    {"_id": item['_id']},
+                                    {"$set": {"characteristics": characteristics}}
+                                )
+                                st.rerun()
                 else:
                     st.write("*No characteristics defined yet*")
                 
@@ -94,18 +108,33 @@ if st.session_state.get("authentication_status"):
                 st.markdown("**Add Characteristic**")
                 with st.form(f"add_char_{str(item['_id'])}"):
                     char_name = st.text_input("Characteristic Name", placeholder="e.g., Weight, Type, Length")
-                    char_variants = st.text_input("Variants (semicolon separated)", placeholder="e.g., 5;10;15;20;25;30")
+                    char_type = st.selectbox("Data Type", ["Numeric", "Variant"], help="Numeric: Enter value in workouts | Variant: Choose from predefined options")
+                    
+                    if char_type == "Variant":
+                        char_variants = st.text_input("Variants (semicolon separated)", placeholder="e.g., Straight; Curved; EZ-Curl")
+                    else:
+                        char_variants = None
                     
                     submitted_char = st.form_submit_button("Add Characteristic")
                     
                     if submitted_char:
-                        if char_name and char_variants:
-                            variants_list = [v.strip() for v in char_variants.split(';') if v.strip()]
-                            
+                        if char_name:
                             if not characteristics:
                                 characteristics = {}
                             
-                            characteristics[char_name] = variants_list
+                            if char_type == "Numeric":
+                                # For numeric, just store the name with type
+                                characteristics[char_name] = {"type": "numeric"}
+                            else:  # Variant
+                                if char_variants:
+                                    variants_list = [v.strip() for v in char_variants.split(';') if v.strip()]
+                                    characteristics[char_name] = {
+                                        "type": "variant",
+                                        "variants": variants_list
+                                    }
+                                else:
+                                    st.error("Please enter variants for variant type")
+                                    st.stop()
                             
                             db.db.equipment.update_one(
                                 {"_id": item['_id']},
@@ -114,11 +143,10 @@ if st.session_state.get("authentication_status"):
                             st.success(f"✅ Characteristic '{char_name}' added!")
                             st.rerun()
                         else:
-                            st.error("Please enter both characteristic name and variants")
+                            st.error("Please enter characteristic name")
                 
                 if st.button("Delete Equipment", key=f"del_eq_{str(item['_id'])}"):
                     db.db.equipment.delete_one({"_id": item['_id']})
-                    st.success(f"✅ Equipment '{item['name']}' deleted!")
                     st.rerun()
     else:
         st.info("No equipment yet. Add some to get started!")

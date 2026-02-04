@@ -85,7 +85,6 @@ if st.session_state.get("authentication_status"):
             with col_c:
                 if st.button("Delete", key=f"del_cat_{str(row['_id'])}"):
                     db.db.categories.delete_one({"_id": row['_id']})
-                    st.success(f"✅ Category '{row['name']}' deleted!")
                     st.rerun()
     else:
         st.info("No categories yet. Add some to get started!")
