@@ -38,7 +38,7 @@ if st.session_state.get("authentication_status"):
     
     st.subheader("Add Category")
     with st.form("add_category"):
-        name = st.text_input("Category Name*", placeholder="e.g., Strength, Cardio, Mobility")
+        name = st.text_input("Category Name*", placeholder="e.g., Strength; Cardio; Mobility")
         description = st.text_area("Description", placeholder="Optional description")
         
         submitted = st.form_submit_button("Add Category")

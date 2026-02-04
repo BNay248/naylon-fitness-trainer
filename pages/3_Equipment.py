@@ -38,7 +38,7 @@ if st.session_state.get("authentication_status"):
     
     st.subheader("Add Equipment")
     with st.form("add_equipment"):
-        name = st.text_input("Equipment Name*", placeholder="e.g., Barbell, Dumbbell, Resistance Band")
+        name = st.text_input("Equipment Name*", placeholder="e.g., Barbell; Dumbbell; Resistance Band")
         description = st.text_area("Description", placeholder="Optional description")
         
         st.info("💡 Equipment attributes (weight ranges, adjustability, etc.) will be added in a future update")

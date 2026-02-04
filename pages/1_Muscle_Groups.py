@@ -43,7 +43,7 @@ if st.session_state.get("authentication_status"):
         
         st.markdown("**Add Muscle**")
         with st.form("add_muscle"):
-            muscle_name = st.text_input("Muscle Name*", placeholder="e.g., Biceps, Triceps, Quadriceps")
+            muscle_name = st.text_input("Muscle Name*", placeholder="e.g., Biceps; Triceps; Quadriceps")
             muscle_description = st.text_area("Description", placeholder="Optional description")
             
             submitted_muscle = st.form_submit_button("Add Muscle")
@@ -85,7 +85,7 @@ if st.session_state.get("authentication_status"):
         
         st.markdown("**Add Muscle Group**")
         with st.form("add_muscle_group"):
-            name = st.text_input("Muscle Group Name*", placeholder="e.g., Arms, Legs, Chest")
+            name = st.text_input("Muscle Group Name*", placeholder="e.g., Arms; Legs; Chest")
             description = st.text_area("Description", placeholder="Optional description")
             
             submitted = st.form_submit_button("Add Muscle Group")
@@ -94,7 +94,8 @@ if st.session_state.get("authentication_status"):
                 if name:
                     muscle_group = {
                         "name": name.strip(),
-                        "description": description.strip() if description else ""
+                        "description": description.strip() if description else "",
+                        "muscles": []
                     }
                     db.db.muscle_groups.insert_one(muscle_group)
                     st.success(f"✅ Muscle group '{name}' added!")
@@ -103,18 +104,49 @@ if st.session_state.get("authentication_status"):
                     st.error("Please enter a muscle group name")
         
         st.markdown("**All Muscle Groups**")
+        
+        # Get all muscles for multiselect options
+        all_muscles = list(db.db.muscles.find())
+        muscle_options = [muscle['name'] for muscle in all_muscles]
+        muscle_dict = {muscle['name']: muscle['_id'] for muscle in all_muscles}
+        reverse_muscle_dict = {str(muscle['_id']): muscle['name'] for muscle in all_muscles}
+        
         muscle_groups = list(db.db.muscle_groups.find())
         
         if muscle_groups:
             df = pd.DataFrame(muscle_groups)
             
             for idx, row in df.iterrows():
-                col_a, col_b = st.columns([3, 1])
-                with col_a:
-                    st.write(f"**{row['name']}**")
+                with st.expander(f"**{row['name']}**"):
                     if 'description' in row and row['description']:
-                        st.write(f"_{row['description']}_")
-                with col_b:
+                        st.write(f"**Description:** {row['description']}")
+                    
+                    # Current muscles in this group
+                    current_muscle_ids = row.get('muscles', [])
+                    current_muscle_names = [reverse_muscle_dict.get(str(mid), "Unknown") for mid in current_muscle_ids]
+                    
+                    st.write(f"**Current Muscles:** {', '.join(current_muscle_names) if current_muscle_names else 'None'}")
+                    
+                    # Multiselect to edit muscles
+                    selected_muscles = st.multiselect(
+                        f"Select muscles for {row['name']}",
+                        options=muscle_options,
+                        default=current_muscle_names,
+                        key=f"edit_muscles_{str(row['_id'])}"
+                    )
+                    
+                    if st.button(f"Update Muscles for {row['name']}", key=f"update_{str(row['_id'])}"):
+                        # Convert selected names back to IDs
+                        selected_ids = [muscle_dict[name] for name in selected_muscles if name in muscle_dict]
+                        
+                        # Update the muscle group
+                        db.db.muscle_groups.update_one(
+                            {"_id": row['_id']},
+                            {"$set": {"muscles": selected_ids}}
+                        )
+                        st.success(f"✅ Muscles updated for '{row['name']}'!")
+                        st.rerun()
+                    
                     if st.button("Delete", key=f"del_mg_{str(row['_id'])}"):
                         db.db.muscle_groups.delete_one({"_id": row['_id']})
                         st.success(f"✅ Muscle group '{row['name']}' deleted!")
