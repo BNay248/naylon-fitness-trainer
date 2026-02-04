@@ -81,9 +81,42 @@ if st.session_state.get("authentication_status"):
                 if 'description' in item and item['description']:
                     st.write(f"**Description:** {item['description']}")
                 
-                st.write("*Attributes coming soon...*")
+                # Display current characteristics
+                characteristics = item.get('characteristics', {})
+                if characteristics:
+                    st.write("**Characteristics:**")
+                    for char_name, variants in characteristics.items():
+                        st.write(f"- **{char_name}:** {', '.join(variants) if isinstance(variants, list) else variants}")
+                else:
+                    st.write("*No characteristics defined yet*")
                 
-                if st.button("Delete", key=f"del_eq_{str(item['_id'])}"):
+                # Add new characteristic
+                st.markdown("**Add Characteristic**")
+                with st.form(f"add_char_{str(item['_id'])}"):
+                    char_name = st.text_input("Characteristic Name", placeholder="e.g., Weight, Type, Length")
+                    char_variants = st.text_input("Variants (semicolon separated)", placeholder="e.g., 5;10;15;20;25;30")
+                    
+                    submitted_char = st.form_submit_button("Add Characteristic")
+                    
+                    if submitted_char:
+                        if char_name and char_variants:
+                            variants_list = [v.strip() for v in char_variants.split(';') if v.strip()]
+                            
+                            if not characteristics:
+                                characteristics = {}
+                            
+                            characteristics[char_name] = variants_list
+                            
+                            db.db.equipment.update_one(
+                                {"_id": item['_id']},
+                                {"$set": {"characteristics": characteristics}}
+                            )
+                            st.success(f"✅ Characteristic '{char_name}' added!")
+                            st.rerun()
+                        else:
+                            st.error("Please enter both characteristic name and variants")
+                
+                if st.button("Delete Equipment", key=f"del_eq_{str(item['_id'])}"):
                     db.db.equipment.delete_one({"_id": item['_id']})
                     st.success(f"✅ Equipment '{item['name']}' deleted!")
                     st.rerun()
