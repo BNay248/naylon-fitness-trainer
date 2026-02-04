@@ -286,6 +286,7 @@ if st.session_state.get("authentication_status"):
         
         final_metrics = [m for m in numeric_metrics + string_metrics if m['name'].strip()]
         
+        st.markdown("---")
         if st.button("Add Exercise"):
             if not name or not instructions or not selected_categories:
                 st.error("Please fill in all required fields (Name, Instructions, Categories).")
@@ -307,7 +308,6 @@ if st.session_state.get("authentication_status"):
                     exercise_data["parent_id"] = st.session_state.variant_parent_id
                 
                 # Add to database
-                st.markdown("---")
                 exercise_id = db.add_exercise(exercise_data)
                 
                 # Clear defaults and metrics
