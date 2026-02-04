@@ -140,7 +140,6 @@ if st.session_state.get("authentication_status"):
                                 {"_id": item['_id']},
                                 {"$set": {"characteristics": characteristics}}
                             )
-                            st.success(f"✅ Characteristic '{char_name}' added!")
                             st.rerun()
                         else:
                             st.error("Please enter characteristic name")

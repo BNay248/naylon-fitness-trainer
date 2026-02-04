@@ -57,11 +57,6 @@ if st.session_state.get("authentication_status"):
                         }
                         db.db.categories.insert_one(category)
                         added_count += 1
-                    
-                    if added_count == 1:
-                        st.success(f"✅ Category '{category_names[0]}' added!")
-                    else:
-                        st.success(f"✅ {added_count} categories added!")
                     st.rerun()
                 else:
                     st.error("Please enter at least one category name")

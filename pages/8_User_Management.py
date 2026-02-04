@@ -59,8 +59,6 @@ if st.session_state.get("authentication_status"):
                     # Save to file
                     with open('config.yaml', 'w') as file:
                         yaml.dump(config, file, default_flow_style=False)
-                    
-                    st.success(f"✅ User '{new_username}' created!")
                     st.rerun()
             else:
                 st.error("Please fill all fields")

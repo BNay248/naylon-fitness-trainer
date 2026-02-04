@@ -62,11 +62,6 @@ if st.session_state.get("authentication_status"):
                             }
                             db.db.muscles.insert_one(muscle)
                             added_count += 1
-                        
-                        if added_count == 1:
-                            st.success(f"✅ Muscle '{muscle_names[0]}' added!")
-                        else:
-                            st.success(f"✅ {added_count} muscles added!")
                         st.rerun()
                     else:
                         st.error("Please enter at least one muscle name")
@@ -155,7 +150,6 @@ if st.session_state.get("authentication_status"):
                             {"_id": row['_id']},
                             {"$set": {"muscles": selected_ids}}
                         )
-                        st.success(f"✅ Muscles updated for '{row['name']}'!")
                         st.rerun()
                     
                     if st.button("Delete", key=f"del_mg_{str(row['_id'])}"):
