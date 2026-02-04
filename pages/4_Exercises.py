@@ -97,7 +97,6 @@ if st.session_state.get("authentication_status"):
     if 'add_delete_index' in st.session_state:
         del st.session_state['add_metrics'][st.session_state['add_delete_index']]
         del st.session_state['add_delete_index']
-        st.rerun()
     
     with st.container(border=True):
         col1, col2 = st.columns(2)
@@ -215,11 +214,9 @@ if st.session_state.get("authentication_status"):
         with col_add_num:
             if st.button("Add Numeric Metric"):
                 st.session_state['add_metrics'].append({'name': '', 'type': 'numeric'})
-                st.rerun()
         with col_add_str:
             if st.button("Add String Metric"):
                 st.session_state['add_metrics'].append({'name': '', 'type': 'string'})
-                st.rerun()
         
         col_num_metrics, col_str_metrics = st.columns(2)
         with col_num_metrics:
@@ -282,8 +279,6 @@ if st.session_state.get("authentication_status"):
                     del st.session_state.variant_parent_id
                 if 'current_parent' in st.session_state:
                     st.session_state.current_parent = None
-                
-                st.rerun()  # Refresh to show the new exercise
     
     # Display existing exercises
     st.subheader("Existing Exercises")
@@ -312,7 +307,6 @@ if st.session_state.get("authentication_status"):
                 ex_id, idx = st.session_state['edit_delete_index']
                 del st.session_state[f'edit_metrics_{ex_id}'][idx]
                 del st.session_state['edit_delete_index']
-                st.rerun()
             
             # Always show edit form with pre-populated values
             with st.container():
