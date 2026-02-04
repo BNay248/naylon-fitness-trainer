@@ -1,5 +1,5 @@
 import streamlit as st
-from db_manager import WorkoutDB
+from db_manager import TrainerDB
 import pandas as pd
 import streamlit_authenticator as stauth
 import yaml
@@ -32,7 +32,7 @@ if st.session_state.get("authentication_status"):
     st.sidebar.write(f'Welcome *{st.session_state["name"]}*')
     
     # Initialize database
-    db = WorkoutDB()
+    db = TrainerDB()
     
     st.title("Manage Equipment")
     
@@ -86,7 +86,7 @@ if st.session_state.get("authentication_status"):
                             if isinstance(char_data, dict):
                                 char_type = char_data.get('type', 'variant')
                                 if char_type == 'numeric':
-                                    st.write(f"- **{char_name}:** Numeric (value entered in workouts)")
+                                    st.write(f"- **{char_name}:** Numeric (value entered in exercises)")
                                 else:  # variant
                                     variants = char_data.get('variants', [])
                                     st.write(f"- **{char_name}:** {', '.join(variants)}")
@@ -108,7 +108,7 @@ if st.session_state.get("authentication_status"):
                 st.markdown("**Add Characteristic**")
                 with st.form(f"add_char_{str(item['_id'])}"):
                     char_name = st.text_input("Characteristic Name", placeholder="e.g., Weight, Type, Length")
-                    char_type = st.selectbox("Data Type", ["Numeric", "Variant"], help="Numeric: Enter value in workouts | Variant: Choose from predefined options")
+                    char_type = st.selectbox("Data Type", ["Numeric", "Variant"], help="Numeric: Enter value in exercises | Variant: Choose from predefined options")
                     
                     if char_type == "Variant":
                         char_variants = st.text_input("Variants (semicolon separated)", placeholder="e.g., Straight; Curved; EZ-Curl")

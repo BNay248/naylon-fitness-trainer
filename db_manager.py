@@ -3,43 +3,81 @@ from datetime import datetime
 from typing import List, Dict, Optional
 from bson.objectid import ObjectId
 
-class WorkoutDB:
+class TrainerDB:
     def __init__(self, connection_string="mongodb://localhost:27017/"):
         self.client = MongoClient(connection_string)
         self.db = self.client.workout_platform
         
-    # Workout methods
-    def add_workout(self, workout_data: Dict) -> str:
-        result = self.db.workouts.insert_one(workout_data)
+    # Exercise methods
+    def add_exercise(self, exercise_data: Dict) -> str:
+        result = self.db.exercises.insert_one(exercise_data)
         return str(result.inserted_id)
     
-    def get_workout(self, workout_id: str) -> Optional[Dict]:
+    def get_exercise(self, exercise_id: str) -> Optional[Dict]:
         try:
-            return self.db.workouts.find_one({"_id": ObjectId(workout_id)})
+            return self.db.exercises.find_one({"_id": ObjectId(exercise_id)})
         except:
             return None
     
-    def get_all_workouts(self) -> List[Dict]:
-        return list(self.db.workouts.find())
+    def get_all_exercises(self) -> List[Dict]:
+        return list(self.db.exercises.find())
     
-    def update_workout(self, workout_id: str, updates: Dict) -> bool:
+    def update_exercise(self, exercise_id: str, updates: Dict) -> bool:
         try:
-            result = self.db.workouts.update_one(
-                {"_id": ObjectId(workout_id)},
+            result = self.db.exercises.update_one(
+                {"_id": ObjectId(exercise_id)},
                 {"$set": updates}
             )
             return result.modified_count > 0
         except:
             return False
     
-    def delete_workout(self, workout_id: str) -> bool:
+    def delete_exercise(self, exercise_id: str) -> bool:
         try:
-            result = self.db.workouts.delete_one({"_id": ObjectId(workout_id)})
+            result = self.db.exercises.delete_one({"_id": ObjectId(exercise_id)})
             return result.deleted_count > 0
         except:
             return False
     
-    # Client methods
+    # Category methods
+    def get_all_categories(self) -> List[Dict]:
+        return list(self.db.categories.find())
+    
+    def get_category(self, category_id: str) -> Optional[Dict]:
+        try:
+            return self.db.categories.find_one({"_id": ObjectId(category_id)})
+        except:
+            return None
+    
+    # Muscle group methods
+    def get_all_muscle_groups(self) -> List[Dict]:
+        return list(self.db.muscle_groups.find())
+    
+    def get_muscle_group(self, muscle_group_id: str) -> Optional[Dict]:
+        try:
+            return self.db.muscle_groups.find_one({"_id": ObjectId(muscle_group_id)})
+        except:
+            return None
+    
+    # Equipment methods
+    def get_all_equipment(self) -> List[Dict]:
+        return list(self.db.equipment.find())
+    
+    def get_equipment(self, equipment_id: str) -> Optional[Dict]:
+        try:
+            return self.db.equipment.find_one({"_id": ObjectId(equipment_id)})
+        except:
+            return None
+    
+    # Muscle methods
+    def get_all_muscles(self) -> List[Dict]:
+        return list(self.db.muscles.find())
+    
+    def get_muscle(self, muscle_id: str) -> Optional[Dict]:
+        try:
+            return self.db.muscles.find_one({"_id": ObjectId(muscle_id)})
+        except:
+            return None
     def add_client(self, client_data: Dict) -> str:
         if 'history' not in client_data:
             client_data['history'] = []

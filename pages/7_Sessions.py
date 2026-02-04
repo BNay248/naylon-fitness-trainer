@@ -1,5 +1,5 @@
 import streamlit as st
-from db_manager import WorkoutDB
+from db_manager import TrainerDB
 import pandas as pd
 import streamlit_authenticator as stauth
 import yaml
@@ -32,7 +32,7 @@ if st.session_state.get("authentication_status"):
     st.sidebar.write(f'Welcome *{st.session_state["name"]}*')
     
     # Initialize database
-    db = WorkoutDB()
+    db = TrainerDB()
     
     st.title("Training Sessions")
     st.info("🚧 Session management coming soon")
