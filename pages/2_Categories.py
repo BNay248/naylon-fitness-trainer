@@ -76,6 +76,13 @@ if st.session_state.get("authentication_status"):
             col_delete, col_name = st.columns([1, 5])
             with col_delete:
                 if st.button("🗑️", key=f"delete_category_{category['_id']}", help="Delete category"):
+                    category_name = category['name']
+                    # Remove this category from all exercises
+                    db.db.exercises.update_many(
+                        {"categories": category_name},
+                        {"$pull": {"categories": category_name}}
+                    )
+                    # Then delete the category
                     db.db.categories.delete_one({"_id": category["_id"]})
                     get_categories.clear()
                     st.rerun(scope="app")

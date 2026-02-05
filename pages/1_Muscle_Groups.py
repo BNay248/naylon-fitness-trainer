@@ -84,8 +84,21 @@ if st.session_state.get("authentication_status"):
             for muscle in muscles:
                 col_delete, col_name = st.columns([1, 5])
                 with col_delete:
-                    if st.button("🗑️", key=f"delete_muscle_{muscle['_id']}", help="Delete muscle"):
-                        db.db.muscles.delete_one({"_id": muscle["_id"]})
+                    if st.button("Delete", key=f"delete_muscle_{muscle['_id']}", help="Delete muscle"):
+                        muscle_name = muscle['name']
+                        # Remove this muscle from all muscle groups
+                        muscle_id = muscle['_id']
+                        db.db.muscle_groups.update_many(
+                            {"muscles": muscle_id},
+                            {"$pull": {"muscles": muscle_id}}
+                        )
+                        # Remove this muscle from all exercises' additional muscles
+                        db.db.exercises.update_many(
+                            {"muscles": muscle_name},
+                            {"$pull": {"muscles": muscle_name}}
+                        )
+                        # Then delete the muscle
+                        db.db.muscles.delete_one({"_id": muscle_id})
                         get_muscles.clear()
                         get_muscle_groups.clear()  # Clear muscle groups cache too since they reference muscles
                         st.rerun(scope="app")
@@ -176,6 +189,13 @@ if st.session_state.get("authentication_status"):
                                 st.rerun(scope="app")
                         with col_delete:
                             if st.button("Delete", key=f"delete_mg_{mg['_id']}", width="stretch"):
+                                muscle_group_name = mg['name']
+                                # Remove this muscle group from all exercises
+                                db.db.exercises.update_many(
+                                    {"muscle_groups": muscle_group_name},
+                                    {"$pull": {"muscle_groups": muscle_group_name}}
+                                )
+                                # Then delete the muscle group
                                 db.db.muscle_groups.delete_one({"_id": mg["_id"]})
                                 get_muscle_groups.clear()
                                 st.rerun(scope="app")

@@ -148,6 +148,13 @@ if st.session_state.get("authentication_status"):
                                 st.error("Please enter characteristic name")
                     
                     if st.button("Delete Equipment", key=f"del_eq_{str(eq['_id'])}", width="stretch"):
+                        equipment_name = eq['name']
+                        # Remove this equipment from all exercises
+                        db.db.exercises.update_many(
+                            {"equipment": equipment_name},
+                            {"$pull": {"equipment": equipment_name}}
+                        )
+                        # Then delete the equipment
                         db.db.equipment.delete_one({"_id": eq["_id"]})
                         get_equipment.clear()
                         st.rerun(scope="app")
