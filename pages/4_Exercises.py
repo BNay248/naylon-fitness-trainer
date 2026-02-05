@@ -53,6 +53,8 @@ if st.session_state.get("authentication_status"):
 
     categories, muscle_groups, muscles, equipment, category_names, muscle_group_names, muscle_names, equipment_names = get_data()
     
+    possible_metrics = ["Reps", "Weight", "Duration", "Calories", "Resistance", "Distance"]
+    
     st.title("Manage Exercises")
     
     @st.fragment
@@ -116,7 +118,6 @@ if st.session_state.get("authentication_status"):
                                             key=f"exercise_equipment_{eq_name}_{char_name}",
                                             help=f"Enter {char_name} for {eq_name}"
                                         )
-            possible_metrics = ["Reps", "Weight", "Duration", "Calories", "Resistance", "Distance"]
             selected_metrics = st.segmented_control("Metrics", options=possible_metrics, selection_mode="multi", width="stretch", key="create_exercise_metrics")
             if st.button("Add Exercise", key="submit_exercise", width="stretch"):
                 if not selected_name or not selected_instructions or not selected_categories or not selected_muscle_groups:
@@ -161,25 +162,106 @@ if st.session_state.get("authentication_status"):
     exercises = get_exercises()
     for exercise in exercises:
         with st.expander(f"{exercise['name']}"):
-            st.write(f"**Instructions:** {exercise['instructions']}")
-            st.write(f"**Categories:** {', '.join(exercise.get('categories', []))}")
-            st.write(f"**Muscle Groups:** {', '.join(exercise.get('muscle_groups', []))}")
-            st.write(f"**Additional Muscles:** {', '.join(exercise.get('muscles', []))}")
-            st.write(f"**Equipment:** {', '.join(exercise.get('equipment', []))}")
-            if exercise.get('equipment_characteristics'):
-                st.write("**Equipment Characteristics:**")
-                for eq_name, chars in exercise['equipment_characteristics'].items():
-                    char_str = ", ".join([f"{k}: {v}" for k, v in chars.items()])
-                    st.write(f"- {eq_name}: {char_str}")
-            metrics = exercise.get('metrics', [])
-            if isinstance(metrics, list):
-                st.write(f"**Metrics:** {', '.join(str(m) for m in metrics)}")
-            else:
-                st.write(f"**Metrics:** {str(metrics)}")
-            if st.button("Delete", key=f"delete_{str(exercise['_id'])}"):
-                db.db.exercises.delete_one({"_id": exercise["_id"]})
-                get_exercises.clear()
-                st.rerun(scope="app")
+            col1, col2 = st.columns(2)
+            with col1:
+                edit_name = st.text_input("Exercise Name*", value=exercise.get('name', ''), key=f"edit_{exercise['_id']}_name")
+                edit_instructions = st.text_area("Instructions*", value=exercise.get('instructions', ''), key=f"edit_{exercise['_id']}_instructions")
+                edit_categories = st.multiselect("Categories*", options=category_names, default=exercise.get('categories', []), key=f"edit_{exercise['_id']}_categories")
+            with col2:
+                edit_muscle_groups = st.multiselect("Muscle Groups*", options=muscle_group_names, default=exercise.get('muscle_groups', []), key=f"edit_{exercise['_id']}_muscle_groups")
+                
+                # Get muscles that are already in the selected muscle groups
+                excluded_muscle_ids = set()
+                if edit_muscle_groups:
+                    for group_name in edit_muscle_groups:
+                        group_doc = next((mg for mg in muscle_groups if mg['name'] == group_name), None)
+                        if group_doc and "muscles" in group_doc:
+                            excluded_muscle_ids.update(group_doc["muscles"])
+                
+                # Get all muscles not in the excluded IDs
+                available_muscles = []
+                for muscle in muscles:
+                    if muscle["_id"] not in excluded_muscle_ids:
+                        available_muscles.append(muscle["name"])
+                
+                edit_muscles = st.multiselect("Additional Muscles*", options=available_muscles, default=exercise.get('muscles', []), key=f"edit_{exercise['_id']}_muscles")
+                edit_equipment = st.multiselect("Equipment", options=equipment_names, default=exercise.get('equipment', []), key=f"edit_{exercise['_id']}_equipment")
+                if edit_equipment:
+                    st.markdown("**Equipment Characteristics**")
+                    for eq_name in edit_equipment:
+                        # Find the equipment object
+                        eq_obj = next((eq for eq in equipment if eq['name'] == eq_name), None)
+                        if eq_obj and 'characteristics' in eq_obj:
+                            with st.expander(f"⚙️ {eq_name} Settings"):
+                                for char_name, char_data in eq_obj['characteristics'].items():
+                                    stored_value = exercise.get('equipment_characteristics', {}).get(eq_name, {}).get(char_name, '')
+                                    if isinstance(char_data, dict) and char_data.get('type') == 'numeric':
+                                        # Numeric characteristic - number input for integers
+                                        st.number_input(
+                                            f"{char_name}",
+                                            min_value=0,
+                                            step=1,
+                                            value=int(stored_value) if stored_value else 0,
+                                            key=f"edit_{exercise['_id']}_equipment_{eq_name}_{char_name}",
+                                            help=f"Enter {char_name} value for {eq_name}"
+                                        )
+                                    elif isinstance(char_data, dict) and char_data.get('type') == 'variant':
+                                        # Variant characteristic - selectbox with predefined options
+                                        variants = char_data.get('variants', [])
+                                        st.selectbox(
+                                            f"{char_name}",
+                                            options=variants,
+                                            index=variants.index(stored_value) if stored_value in variants else 0,
+                                            key=f"edit_{exercise['_id']}_equipment_{eq_name}_{char_name}",
+                                            help=f"Select {char_name} for {eq_name}"
+                                        )
+                                    else:
+                                        # Fallback - text input for any other type
+                                        st.text_input(
+                                            f"{char_name}",
+                                            value=stored_value,
+                                            key=f"edit_{exercise['_id']}_equipment_{eq_name}_{char_name}",
+                                            help=f"Enter {char_name} for {eq_name}"
+                                        )
+            edit_metrics = st.segmented_control("Metrics", options=possible_metrics, selection_mode="multi", default=exercise.get('metrics', []), key=f"edit_{exercise['_id']}_metrics")
+            col_save, col_delete = st.columns(2)
+            with col_save:
+                if st.button("Save", key=f"save_{exercise['_id']}"):
+                    # Collect equipment characteristics
+                    equipment_characteristics = {}
+                    for eq_name in edit_equipment:
+                        eq_obj = next((eq for eq in equipment if eq['name'] == eq_name), None)
+                        if eq_obj and 'characteristics' in eq_obj:
+                            eq_chars = {}
+                            for char_name, char_data in eq_obj['characteristics'].items():
+                                key = f"edit_{exercise['_id']}_equipment_{eq_name}_{char_name}"
+                                value = st.session_state.get(key, "")
+                                if value:
+                                    eq_chars[char_name] = value
+                            if eq_chars:
+                                equipment_characteristics[eq_name] = eq_chars
+                    
+                    # Update exercise item
+                    update_data = {
+                        "name": edit_name,
+                        "instructions": edit_instructions,
+                        "categories": edit_categories,
+                        "muscle_groups": edit_muscle_groups,
+                        "muscles": edit_muscles,
+                        "equipment": edit_equipment,
+                        "equipment_characteristics": equipment_characteristics,
+                        "metrics": edit_metrics
+                    }
+                    
+                    # Update in database
+                    db.db.exercises.update_one({"_id": exercise["_id"]}, {"$set": update_data})
+                    get_exercises.clear()  # Clear cache to refresh exercise list
+                    st.rerun(scope="app")
+            with col_delete:
+                if st.button("Delete", key=f"delete_{exercise['_id']}"):
+                    db.db.exercises.delete_one({"_id": exercise["_id"]})
+                    get_exercises.clear()
+                    st.rerun(scope="app")
         
 elif st.session_state.get("authentication_status") == False:
     st.error('Username/password is incorrect')
