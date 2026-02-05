@@ -60,6 +60,9 @@ if st.session_state.get("authentication_status"):
     @st.fragment
     def exercise_creation_form():
         st.subheader("Add Exercise")
+        if st.button("Refresh Data", key="refresh_data"):
+            get_data.clear()
+            st.rerun(scope="app")
         with st.container(border=True):
             col1, col2 = st.columns(2)
             with col1:
