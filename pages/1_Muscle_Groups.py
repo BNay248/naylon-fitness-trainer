@@ -1,3 +1,4 @@
+from pkgutil import get_data
 import streamlit as st
 from db_manager import TrainerDB
 import pandas as pd
@@ -43,6 +44,11 @@ if st.session_state.get("authentication_status"):
         return list(db.db.muscle_groups.find())
 
     st.title("Manage Muscles & Muscle Groups")
+
+    if st.button("Refresh Data", key="refresh_data"):
+        get_muscles.clear()
+        get_muscle_groups.clear()
+        st.rerun(scope="app")
     
     col1, col2 = st.columns(2)
     

@@ -42,6 +42,9 @@ if st.session_state.get("authentication_status"):
     @st.fragment
     def add_equipment_form():
         st.subheader("Add Equipment")
+        if st.button("Refresh Data", key="refresh_data"):
+            get_equipment.clear()
+            st.rerun(scope="app")
         with st.container(border=True):
             name = st.text_input("Equipment Name*", placeholder="e.g., Barbell; Dumbbell; Resistance Band", key="add_equipment_name")
             description = st.text_area("Description", placeholder="Optional description", key="add_equipment_description")

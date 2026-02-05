@@ -42,6 +42,9 @@ if st.session_state.get("authentication_status"):
     @st.fragment
     def add_category_form():
         st.subheader("Add Category")
+        if st.button("Refresh Data", key="refresh_data"):
+            get_categories.clear()
+            st.rerun(scope="app")
         with st.container(border=True):
             name = st.text_input("Category Name*", placeholder="e.g., Strength; Cardio; Mobility", key="add_category_name")
             description = st.text_area("Description", placeholder="Optional description", key="add_category_description")
