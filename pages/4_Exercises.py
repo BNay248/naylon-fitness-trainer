@@ -164,7 +164,7 @@ if st.session_state.get("authentication_status"):
             st.write(f"**Instructions:** {exercise['instructions']}")
             st.write(f"**Categories:** {', '.join(exercise.get('categories', []))}")
             st.write(f"**Muscle Groups:** {', '.join(exercise.get('muscle_groups', []))}")
-            st.write(f"**Muscles:** {', '.join(exercise.get('muscles', []))}")
+            st.write(f"**Additional Muscles:** {', '.join(exercise.get('muscles', []))}")
             st.write(f"**Equipment:** {', '.join(exercise.get('equipment', []))}")
             if exercise.get('equipment_characteristics'):
                 st.write("**Equipment Characteristics:**")
