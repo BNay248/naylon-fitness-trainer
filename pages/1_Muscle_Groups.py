@@ -82,9 +82,10 @@ if st.session_state.get("authentication_status"):
         
         if muscles:
             for muscle in muscles:
+                st.markdown("---")
                 col_delete, col_name = st.columns([1, 5])
                 with col_delete:
-                    if st.button("Delete", key=f"delete_muscle_{muscle['_id']}", help="Delete muscle"):
+                    if st.button("🗑️", key=f"delete_muscle_{muscle['_id']}", help="Delete muscle"):
                         muscle_name = muscle['name']
                         # Remove this muscle from all muscle groups
                         muscle_id = muscle['_id']
