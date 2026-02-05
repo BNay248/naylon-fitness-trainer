@@ -154,6 +154,8 @@ if st.session_state.get("authentication_status"):
                 get_exercises.clear()  # Clear cache to refresh exercise list
                 st.rerun(scope="app")
 
+    exercise_creation_form()
+
     # Display existing exercises
     st.subheader("All Exercises")
     exercises = get_exercises()
@@ -169,7 +171,11 @@ if st.session_state.get("authentication_status"):
                 for eq_name, chars in exercise['equipment_characteristics'].items():
                     char_str = ", ".join([f"{k}: {v}" for k, v in chars.items()])
                     st.write(f"- {eq_name}: {char_str}")
-            st.write(f"**Metrics:** {', '.join(exercise.get('metrics', []))}")
+            metrics = exercise.get('metrics', [])
+            if isinstance(metrics, list):
+                st.write(f"**Metrics:** {', '.join(str(m) for m in metrics)}")
+            else:
+                st.write(f"**Metrics:** {str(metrics)}")
         if st.button("Delete", key=f"delete_{str(exercise['_id'])}"):
             db.db.exercises.delete_one({"_id": exercise["_id"]})
             get_exercises.clear()
