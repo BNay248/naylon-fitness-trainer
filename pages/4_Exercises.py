@@ -83,7 +83,7 @@ if st.session_state.get("authentication_status"):
                     if muscle["_id"] not in excluded_muscle_ids:
                         available_muscles.append(muscle["name"])
                 
-                selected_muscles = st.multiselect("Additional Muscles*", options=available_muscles, key="create_exercise_muscles", default=None)
+                selected_muscles = st.multiselect("Additional Muscles*", options=available_muscles, default=[m for m in st.session_state.get("create_exercise_muscles", []) if m in available_muscles], key="create_exercise_muscles")
                 selected_equipment = st.multiselect("Equipment", options=equipment_names, key="create_exercise_equipment", default=None)
                 if selected_equipment:
                     st.markdown("**Equipment Characteristics**")
@@ -184,7 +184,7 @@ if st.session_state.get("authentication_status"):
                     if muscle["_id"] not in excluded_muscle_ids:
                         available_muscles.append(muscle["name"])
                 
-                edit_muscles = st.multiselect("Additional Muscles*", options=available_muscles, default=exercise.get('muscles', []), key=f"edit_{exercise['_id']}_muscles")
+                edit_muscles = st.multiselect("Additional Muscles*", options=available_muscles, default=[m for m in exercise.get('muscles', []) if m in available_muscles], key=f"edit_{exercise['_id']}_muscles")
                 edit_equipment = st.multiselect("Equipment", options=equipment_names, default=exercise.get('equipment', []), key=f"edit_{exercise['_id']}_equipment")
                 if edit_equipment:
                     st.markdown("**Equipment Characteristics**")
@@ -226,7 +226,7 @@ if st.session_state.get("authentication_status"):
             edit_metrics = st.segmented_control("Metrics", options=possible_metrics, selection_mode="multi", default=exercise.get('metrics', []), key=f"edit_{exercise['_id']}_metrics")
             col_save, col_delete = st.columns(2)
             with col_save:
-                if st.button("Save", key=f"save_{exercise['_id']}"):
+                if st.button("Save", key=f"save_{exercise['_id']}", width="stretch"):
                     # Collect equipment characteristics
                     equipment_characteristics = {}
                     for eq_name in edit_equipment:
@@ -258,7 +258,7 @@ if st.session_state.get("authentication_status"):
                     get_exercises.clear()  # Clear cache to refresh exercise list
                     st.rerun(scope="app")
             with col_delete:
-                if st.button("Delete", key=f"delete_{exercise['_id']}"):
+                if st.button("Delete", key=f"delete_{exercise['_id']}", width="stretch"):
                     db.db.exercises.delete_one({"_id": exercise["_id"]})
                     get_exercises.clear()
                     st.rerun(scope="app")
