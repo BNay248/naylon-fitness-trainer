@@ -72,7 +72,9 @@ if st.session_state.get("authentication_status"):
     categories = get_categories()
     
     if categories:
+        categories.sort(key=lambda x: x['name'])
         for category in categories:
+            st.markdown("---")
             col_delete, col_name = st.columns([1, 5])
             with col_delete:
                 if st.button("🗑️", key=f"delete_category_{category['_id']}", help="Delete category"):

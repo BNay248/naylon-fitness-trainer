@@ -21,7 +21,7 @@ authenticator = stauth.Authenticate(
 )
 
 # Login widget
-authenticator.login()\
+authenticator.login()
 
 st.set_page_config(page_title="NFP - Clients", layout="wide")
 

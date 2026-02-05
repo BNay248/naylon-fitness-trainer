@@ -73,6 +73,7 @@ if st.session_state.get("authentication_status"):
     equipment = get_equipment()
     
     if equipment:
+        equipment.sort(key=lambda x: x['name'])
         for item in equipment:
             @st.fragment
             def edit_equipment_fragment(eq=item):

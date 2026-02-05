@@ -46,12 +46,10 @@ if st.session_state.get("authentication_status"):
     
     col1, col2 = st.columns(2)
     
-    with col1:
-        st.subheader("Manage Muscles")
-        
+    with col1:        
         @st.fragment
         def add_muscle_form():
-            st.markdown("**Add Muscle**")
+            st.subheader("Add Muscle")
             with st.container(border=True):
                 muscle_name = st.text_input("Muscle Name*", placeholder="e.g., Biceps; Triceps; Quadriceps", key="add_muscle_name")
                 muscle_description = st.text_area("Description", placeholder="Optional description", key="add_muscle_description")
@@ -77,10 +75,11 @@ if st.session_state.get("authentication_status"):
 
         add_muscle_form()
         
-        st.markdown("**All Muscles**")
+        st.subheader("**All Muscles**")
         muscles = get_muscles()
         
         if muscles:
+            muscles.sort(key=lambda x: x['name'])
             for muscle in muscles:
                 st.markdown("---")
                 col_delete, col_name = st.columns([1, 5])
@@ -111,11 +110,9 @@ if st.session_state.get("authentication_status"):
             st.info("No muscles yet. Add some to get started!")
     
     with col2:
-        st.subheader("Manage Muscle Groups")
-        
         @st.fragment
         def add_muscle_group_form():
-            st.markdown("**Add Muscle Group**")
+            st.subheader("Add Muscle Group")
             with st.container(border=True):
                 name = st.text_input("Muscle Group Name*", placeholder="e.g., Arms; Legs; Chest", key="add_muscle_group_name")
                 description = st.text_area("Description", placeholder="Optional description", key="add_muscle_group_description")
@@ -136,7 +133,7 @@ if st.session_state.get("authentication_status"):
 
         add_muscle_group_form()
         
-        st.markdown("**All Muscle Groups**")
+        st.subheader("All Muscle Groups")
         
         # Get all muscles for multiselect options
         all_muscles = get_muscles()
@@ -147,6 +144,7 @@ if st.session_state.get("authentication_status"):
         muscle_groups = get_muscle_groups()
         
         if muscle_groups:
+            muscle_groups.sort(key=lambda x: x['name'])
             for muscle_group in muscle_groups:
                 @st.fragment
                 def edit_muscle_group_fragment(mg=muscle_group):
