@@ -176,10 +176,10 @@ if st.session_state.get("authentication_status"):
                 st.write(f"**Metrics:** {', '.join(str(m) for m in metrics)}")
             else:
                 st.write(f"**Metrics:** {str(metrics)}")
-        if st.button("Delete", key=f"delete_{str(exercise['_id'])}"):
-            db.db.exercises.delete_one({"_id": exercise["_id"]})
-            get_exercises.clear()
-            st.rerun(scope="app")
+            if st.button("Delete", key=f"delete_{str(exercise['_id'])}"):
+                db.db.exercises.delete_one({"_id": exercise["_id"]})
+                get_exercises.clear()
+                st.rerun(scope="app")
         
 elif st.session_state.get("authentication_status") == False:
     st.error('Username/password is incorrect')
