@@ -22,6 +22,3 @@ if st.session_state.get("authentication_status"):
     
     st.title("Training Sessions")
     st.info("🚧 Session management coming soon")
-
-elif st.session_state.get("authentication_status") == False:
-    st.error('Username/password is incorrect')

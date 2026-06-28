@@ -66,6 +66,3 @@ if st.session_state.get("authentication_status"):
                         st.rerun()
     else:
         st.info("No users found.")
-
-elif st.session_state.get("authentication_status") == False:
-    st.error('Username/password is incorrect')

@@ -89,6 +89,3 @@ if st.session_state.get("authentication_status"):
                     db.db.exercises.delete_one({"_id": exercise["_id"]})
                     get_exercises.clear()
                     st.rerun(scope="app")
-        
-elif st.session_state.get("authentication_status") == False:
-    st.error('Username/password is incorrect')

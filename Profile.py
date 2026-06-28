@@ -67,6 +67,3 @@ if st.session_state.get("authentication_status"):
         - Minimum 6 characters
         - You'll need to log in again after changing your password
         """)
-
-elif st.session_state.get("authentication_status") == False:
-    st.error('Username/password is incorrect')
