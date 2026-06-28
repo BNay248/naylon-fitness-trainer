@@ -1,29 +1,15 @@
 import streamlit as st
 from db_manager import TrainerDB
 import pandas as pd
-import streamlit_authenticator as stauth
-import yaml
-from yaml.loader import SafeLoader
+from auth_helper import load_config, create_authenticator, render_login_and_registration
 
 # Page config
 st.set_page_config(page_title="Naylon Fitness Portal", page_icon="NFP.jpg", layout="wide")
 
-# Load authentication config
-with open('config.yaml') as file:
-    config = yaml.load(file, Loader=SafeLoader)
-
-# Create authenticator
-authenticator = stauth.Authenticate(
-    config['credentials'],
-    config['cookie']['name'],
-    config['cookie']['key'],
-    config['cookie']['expiry_days']
-)
-
-# Login widget
-authenticator.login()
-
-st.set_page_config(page_title="NFP - Coaches", layout="wide")
+config = load_config()
+db = TrainerDB()
+authenticator = create_authenticator(config, db)
+render_login_and_registration(authenticator, config, db)
 
 # Check authentication status from session state
 if st.session_state.get("authentication_status"):

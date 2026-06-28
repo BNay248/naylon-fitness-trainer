@@ -64,7 +64,26 @@ class TrainerDB:
             return result.modified_count > 0
         except:
             return False
-    
+
+    # User methods
+    def add_user(self, user_data: Dict) -> str:
+        result = self.db.users.insert_one(user_data)
+        return str(result.inserted_id)
+
+    def get_user_by_username(self, username: str) -> Optional[Dict]:
+        return self.db.users.find_one({"username": username})
+
+    def get_all_users(self) -> List[Dict]:
+        return list(self.db.users.find())
+
+    def delete_user_by_username(self, username: str) -> bool:
+        result = self.db.users.delete_one({"username": username})
+        return result.deleted_count > 0
+
+    def update_user(self, username: str, updates: Dict) -> bool:
+        result = self.db.users.update_one({"username": username}, {"$set": updates})
+        return result.modified_count > 0
+
     # Coach methods
     def add_coach(self, coach_data: Dict) -> str:
         if 'assigned_sessions' not in coach_data:

@@ -1,33 +1,23 @@
 import streamlit as st
-import streamlit_authenticator as stauth
-import yaml
-from yaml.loader import SafeLoader
 import bcrypt
+from db_manager import TrainerDB
+from auth_helper import load_config, create_authenticator, render_login_and_registration
 
 # Page config
 st.set_page_config(page_title="Naylon Fitness Portal", page_icon="NFP.jpg", layout="wide")
 
-# Load authentication config
-with open('config.yaml') as file:
-    config = yaml.load(file, Loader=SafeLoader)
-
-# Create authenticator
-authenticator = stauth.Authenticate(
-    config['credentials'],
-    config['cookie']['name'],
-    config['cookie']['key'],
-    config['cookie']['expiry_days']
-)
-
-# Login widget
-authenticator.login()
-
-st.set_page_config(page_title="NFP - User Management", layout="wide")
+config = load_config()
+db = TrainerDB()
+authenticator = create_authenticator(config, db)
+render_login_and_registration(authenticator, config, db)
 
 # Check authentication status from session state
 if st.session_state.get("authentication_status"):
-    # User is authenticated
-    authenticator.logout(location='sidebar')
+    if st.session_state.get("username") != "brad":
+        st.sidebar.write(f'Welcome *{st.session_state["name"]}*')
+        st.error("Access denied. This page is only available to the administrator.")
+        st.stop()
+
     st.sidebar.write(f'Welcome *{st.session_state["name"]}*')
     
     st.title("👥 User Management")
@@ -43,43 +33,37 @@ if st.session_state.get("authentication_status"):
         
         if submitted:
             if new_username and new_name and new_email and new_password:
-                if new_username in config['credentials']['usernames']:
+                if db.get_user_by_username(new_username):
                     st.error("Username already exists!")
                 else:
-                    # Hash the password
                     hashed_pw = bcrypt.hashpw(new_password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
-                    
-                    # Add to config
-                    config['credentials']['usernames'][new_username] = {
+                    db.add_user({
+                        'username': new_username,
                         'name': new_name,
                         'email': new_email,
                         'password': hashed_pw
-                    }
-                    
-                    # Save to file
-                    with open('config.yaml', 'w') as file:
-                        yaml.dump(config, file, default_flow_style=False)
+                    })
+                    st.success("User created successfully.")
                     st.rerun()
             else:
                 st.error("Please fill all fields")
     
     st.subheader("Current Users")
     
-    users = config['credentials']['usernames']
+    users = db.get_all_users()
     
     if users:
-        for username, details in users.items():
+        for user in users:
+            username = user.get('username')
             col_a, col_b = st.columns(2)
             with col_a:
                 st.write(f"**{username}**")
             with col_b:
                 if st.button("Delete", key=f"del_user_{username}"):
-                    # Delete the user
-                    del config['credentials']['usernames'][username]
-                    # Save to file
-                    with open('config.yaml', 'w') as file:
-                        yaml.dump(config, file, default_flow_style=False)
-                    st.rerun()
+                    if isinstance(username, str):
+                        db.delete_user_by_username(username)
+                        st.success(f"User '{username}' deleted.")
+                        st.rerun()
     else:
         st.info("No users found.")
 
