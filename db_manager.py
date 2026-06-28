@@ -39,45 +39,7 @@ class TrainerDB:
         except:
             return False
     
-    # Category methods
-    def get_all_categories(self) -> List[Dict]:
-        return list(self.db.categories.find())
-    
-    def get_category(self, category_id: str) -> Optional[Dict]:
-        try:
-            return self.db.categories.find_one({"_id": ObjectId(category_id)})
-        except:
-            return None
-    
-    # Muscle group methods
-    def get_all_muscle_groups(self) -> List[Dict]:
-        return list(self.db.muscle_groups.find())
-    
-    def get_muscle_group(self, muscle_group_id: str) -> Optional[Dict]:
-        try:
-            return self.db.muscle_groups.find_one({"_id": ObjectId(muscle_group_id)})
-        except:
-            return None
-    
-    # Equipment methods
-    def get_all_equipment(self) -> List[Dict]:
-        return list(self.db.equipment.find())
-    
-    def get_equipment(self, equipment_id: str) -> Optional[Dict]:
-        try:
-            return self.db.equipment.find_one({"_id": ObjectId(equipment_id)})
-        except:
-            return None
-    
-    # Muscle methods
-    def get_all_muscles(self) -> List[Dict]:
-        return list(self.db.muscles.find())
-    
-    def get_muscle(self, muscle_id: str) -> Optional[Dict]:
-        try:
-            return self.db.muscles.find_one({"_id": ObjectId(muscle_id)})
-        except:
-            return None
+    #Client methods
     def add_client(self, client_data: Dict) -> str:
         if 'history' not in client_data:
             client_data['history'] = []

@@ -1,0 +1,110 @@
+import streamlit as st
+from db_manager import TrainerDB
+import pandas as pd
+import streamlit_authenticator as stauth
+import yaml
+from yaml.loader import SafeLoader
+
+# Page config
+st.set_page_config(page_title="Naylon Fitness Portal", page_icon="NFP.jpg", layout="wide")
+
+# Load authentication config
+with open('config.yaml') as file:
+    config = yaml.load(file, Loader=SafeLoader)
+
+# Create authenticator
+authenticator = stauth.Authenticate(
+    config['credentials'],
+    config['cookie']['name'],
+    config['cookie']['key'],
+    config['cookie']['expiry_days']
+)
+
+# Login widget
+authenticator.login()
+
+st.set_page_config(page_title="NFP - Exercises", layout="wide")
+
+# Check authentication status from session state
+if st.session_state.get("authentication_status"):
+    # User is authenticated
+    authenticator.logout(location='sidebar')
+    st.sidebar.write(f'Welcome *{st.session_state["name"]}*')
+    
+    # Initialize database
+    db = TrainerDB()
+    
+    @st.cache_data(show_spinner=False)
+    def get_exercises():
+        exercises = list(db.db.exercises.find())
+        return exercises
+    
+    possible_metrics = ["Reps", "Weight", "Duration", "Calories", "Resistance", "Distance"]
+    
+    st.title("Manage Exercises")
+    
+    @st.fragment
+    def exercise_creation_form():
+        st.subheader("Add Exercise")
+        if st.button("Refresh Data", key="refresh_data"):
+            st.rerun(scope="app")
+
+        #Container for exercise creation form
+        with st.container(border=True):
+            selected_name = st.text_input("Exercise Name*", key="create_exercise_name")
+            selected_instructions = st.text_area("Instructions*", key="create_exercise_description")
+            #Metrics
+            selected_metrics = st.segmented_control("Metrics", options=possible_metrics, selection_mode="multi", width="stretch", key="create_exercise_metrics")
+            if st.button("Add Exercise", key="submit_exercise", width="stretch"):
+                if not selected_name or not selected_instructions:
+                    st.error("Please fill in all required fields")
+                    st.stop()
+                
+                # Create exercise item
+                exercise_item = {
+                    "name": selected_name,
+                    "instructions": selected_instructions,
+                    "metrics": selected_metrics
+                }
+                
+                # Insert into database
+                db.db.exercises.insert_one(exercise_item)
+                get_exercises.clear()  # Clear cache to refresh exercise list
+                st.rerun(scope="app")
+
+    exercise_creation_form()
+
+    # Display existing exercises
+    st.subheader("All Exercises")
+    exercises = get_exercises()
+    for exercise in exercises:
+        with st.expander(f"{exercise['name']}"):
+            edit_name = st.text_input("Exercise Name*", value=exercise.get('name', ''), key=f"edit_{exercise['_id']}_name")
+            edit_instructions = st.text_area("Instructions*", value=exercise.get('instructions', ''), key=f"edit_{exercise['_id']}_instructions")
+            #Metrics
+            edit_metrics = st.segmented_control("Metrics", options=possible_metrics, selection_mode="multi", default=exercise.get('metrics', []), key=f"edit_{exercise['_id']}_metrics")
+            col_save, col_delete = st.columns(2)
+            with col_save:
+                if st.button("Save", key=f"save_{exercise['_id']}", width="stretch"):
+                    
+                    # Update exercise item
+                    update_data = {
+                        "name": edit_name,
+                        "instructions": edit_instructions,
+                        "metrics": edit_metrics
+                    }
+                    
+                    # Update in database
+                    db.db.exercises.update_one({"_id": exercise["_id"]}, {"$set": update_data})
+                    get_exercises.clear()  # Clear cache to refresh exercise list
+                    st.rerun(scope="app")
+            with col_delete:
+                if st.button("Delete", key=f"delete_{exercise['_id']}", width="stretch"):
+                    db.db.exercises.delete_one({"_id": exercise["_id"]})
+                    get_exercises.clear()
+                    st.rerun(scope="app")
+        
+elif st.session_state.get("authentication_status") == False:
+    st.error('Username/password is incorrect')
+elif st.session_state.get("authentication_status") == None:
+    st.warning('Please enter your username and password')
