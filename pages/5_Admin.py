@@ -75,13 +75,33 @@ if st.session_state.get("authentication_status"):
     if users:
         for user in users:
             username = user.get('username')
-            col_a, col_b = st.columns(2)
+            role = user.get('role', 'client')
+            col_a, col_b, col_c = st.columns([3, 2, 1])
             with col_a:
                 st.write(f"**{username}**")
             with col_b:
-                if st.button("Delete", key=f"del_user_{username}"):
+                button_label = "Remove Coach" if role == "coach" else "Add Coach"
+                if st.button(button_label, key=f"toggle_role_{username}", use_container_width=True):
+                    if isinstance(username, str):
+                        new_role = "client" if role == "coach" else "coach"
+                        db.update_user(username, {"role": new_role})
+                        if new_role == "coach":
+                            db.add_coach({
+                                'username': username,
+                                'name': user.get('name', username),
+                                'email': user.get('email', ''),
+                                'role': new_role
+                            })
+                        else:
+                            db.db.coaches.delete_many({"username": username})
+                        st.success(f"Role updated for '{username}'.")
+                        st.rerun()
+            with col_c:
+                if st.button("Delete", key=f"del_user_{username}", use_container_width=True):
                     if isinstance(username, str):
                         db.delete_user_by_username(username)
+                        db.db.coaches.delete_many({"username": username})
+                        db.db.clients.delete_many({"username": username})
                         st.success(f"User '{username}' deleted.")
                         st.rerun()
     else:
