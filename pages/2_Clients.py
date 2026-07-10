@@ -85,36 +85,99 @@ if st.session_state.get("authentication_status"):
                 if client_sessions:
                     for session in sorted(client_sessions, key=lambda item: str(item.get("name", "")).lower()):
                         session_id = str(session.get("_id"))
+                        edit_mode_key = f"editing_client_session_{session_id}"
+                        edit_mode = st.session_state.get(edit_mode_key, False)
+
                         st.subheader(session.get("name", "Untitled Session"))
-                        for superset_idx, superset in enumerate(session.get("supersets", [])):
-                            with st.container(border=True):
-                                st.markdown(f"**Superset {superset_idx + 1}**")
-                                for exercise_idx, exercise in enumerate(superset.get("exercises", [])):
-                                    exercise_name = exercise.get("name", "Untitled")
-                                    metrics = exercise.get("metrics", [])
-                                    st.markdown(f"**{exercise_name}**")
-                                    for instance_idx, instance in enumerate(exercise.get("instances", [])):
-                                        instance_metrics = instance.get("metrics", {})
-                                        if metrics:
-                                            cols = st.columns(len(metrics))
-                                            for col_idx, metric in enumerate(metrics):
-                                                widget_key = f"coach_edit_{client_username}_{session_id}_{superset_idx}_{exercise_idx}_{instance_idx}_{metric}"
-                                                with cols[col_idx]:
-                                                    current_value = instance_metrics.get(metric, 0)
-                                                    updated_value = st.number_input(
-                                                        metric,
-                                                        min_value=0,
-                                                        value=int(current_value) if current_value not in [None, ""] else 0,
-                                                        step=1,
-                                                        format="%d",
-                                                        key=widget_key,
-                                                    )
-                                                    instance_metrics[metric] = int(updated_value)
-                                    st.caption("")
-                        if st.button("Save Session", key=f"save_client_session_{session_id}", use_container_width=True):
-                            db.db.sessions.update_one({"_id": session.get("_id")}, {"$set": {"supersets": session.get("supersets", [])}})
-                            st.success(f"Saved {session.get('name', 'session')}")
-                            st.rerun()
+                        if not edit_mode:
+                            if st.button("Edit Session", key=f"edit_client_session_{session_id}", use_container_width=True):
+                                st.session_state[edit_mode_key] = True
+                                st.rerun()
+                        else:
+                            session_name = st.text_input("Session Name*", value=session.get("name", ""), key=f"client_session_name_{session_id}")
+                            session_edit = {"name": session_name, "supersets": deepcopy(session.get("supersets", []))}
+                            exercise_options = sorted(list(db.db.exercises.find()), key=lambda item: str(item.get("name", "")).lower())
+
+                            for superset_idx, superset in enumerate(session_edit["supersets"]):
+                                with st.container(border=True):
+                                    st.markdown(f"**Superset {superset_idx + 1}**")
+                                    repeats = st.number_input(
+                                        "Repeat this superset",
+                                        min_value=1,
+                                        max_value=20,
+                                        value=int(superset.get("repeats", 1)),
+                                        step=1,
+                                        format="%d",
+                                        key=f"client_superset_repeats_{session_id}_{superset_idx}",
+                                    )
+                                    superset["repeats"] = int(repeats)
+
+                                    exercises = superset.setdefault("exercises", [])
+                                    for exercise_idx, exercise in enumerate(exercises):
+                                        col_left, col_right = st.columns([4, 1])
+                                        with col_left:
+                                            exercise_names = [item.get("name", "") for item in exercise_options]
+                                            chosen_name = exercise.get("name") or ""
+                                            if chosen_name not in exercise_names:
+                                                chosen_name = exercise_names[0] if exercise_names else ""
+                                            selected_exercise_name = st.selectbox(
+                                                "Exercise",
+                                                options=exercise_names,
+                                                index=exercise_names.index(chosen_name) if chosen_name in exercise_names else 0,
+                                                key=f"client_exercise_select_{session_id}_{superset_idx}_{exercise_idx}",
+                                            )
+                                            exercise["name"] = selected_exercise_name
+                                            selected_exercise = next((item for item in exercise_options if item.get("name") == selected_exercise_name), None)
+                                            if selected_exercise:
+                                                exercise["exercise_id"] = str(selected_exercise.get("_id"))
+                                                exercise["metrics"] = selected_exercise.get("metrics", [])
+                                        with col_right:
+                                            if st.button("Remove", key=f"client_remove_exercise_{session_id}_{superset_idx}_{exercise_idx}", use_container_width=True):
+                                                exercises.pop(exercise_idx)
+                                                st.rerun()
+
+                                    if st.button("Add Exercise", key=f"client_add_exercise_{session_id}_{superset_idx}", use_container_width=True):
+                                        exercises.append({"exercise_id": "", "name": "", "metrics": []})
+                                        st.rerun()
+
+                            if st.button("Add Superset", key=f"client_add_superset_{session_id}", use_container_width=True):
+                                session_edit["supersets"].append({"repeats": 1, "exercises": [{"exercise_id": "", "name": "", "metrics": []}]})
+                                st.rerun()
+
+                            col_save, col_cancel = st.columns(2)
+                            with col_save:
+                                if st.button("Save Changes", key=f"client_save_session_{session_id}", use_container_width=True):
+                                    valid_supersets = []
+                                    for superset in session_edit["supersets"]:
+                                        exercise_rows = []
+                                        for exercise in superset.get("exercises", []):
+                                            if not exercise.get("name"):
+                                                continue
+                                            exercise_rows.append({
+                                                "exercise_id": exercise.get("exercise_id", ""),
+                                                "name": exercise.get("name", ""),
+                                                "metrics": exercise.get("metrics", []),
+                                                "instances": exercise.get("instances", [{"metrics": {}} for _ in range(int(superset.get("repeats", 1)))])
+                                            })
+                                        if exercise_rows:
+                                            valid_supersets.append({"repeats": int(superset.get("repeats", 1)), "exercises": exercise_rows})
+
+                                    if not session_name.strip():
+                                        st.error("Please enter a session name")
+                                    elif not valid_supersets:
+                                        st.error("Please add at least one exercise")
+                                    else:
+                                        db.db.sessions.update_one(
+                                            {"_id": session.get("_id")},
+                                            {"$set": {"name": session_name.strip(), "supersets": valid_supersets}},
+                                        )
+                                        st.session_state.pop(edit_mode_key, None)
+                                        st.success("Session updated")
+                                        st.rerun()
+                            with col_cancel:
+                                if st.button("Cancel", key=f"client_cancel_session_{session_id}", use_container_width=True):
+                                    st.session_state.pop(edit_mode_key, None)
+                                    st.rerun()
                 else:
                     st.caption("No sessions assigned to this client yet.")
     else:
