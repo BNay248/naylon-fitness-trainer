@@ -79,7 +79,44 @@ if st.session_state.get("authentication_status"):
     current_clients = current_user.get("clients", []) or []
     if current_clients:
         for client_username in current_clients:
-            st.write(f"• {client_username}")
+            client_user = db.get_user_by_username(client_username) or {}
+            with st.expander(f"{client_user.get('name', client_username)} ({client_username})"):
+                client_sessions = list(db.db.sessions.find({"assigned_to": client_username, "coach_username": current_username}))
+                if client_sessions:
+                    for session in sorted(client_sessions, key=lambda item: str(item.get("name", "")).lower()):
+                        session_id = str(session.get("_id"))
+                        st.subheader(session.get("name", "Untitled Session"))
+                        for superset_idx, superset in enumerate(session.get("supersets", [])):
+                            with st.container(border=True):
+                                st.markdown(f"**Superset {superset_idx + 1}**")
+                                for exercise_idx, exercise in enumerate(superset.get("exercises", [])):
+                                    exercise_name = exercise.get("name", "Untitled")
+                                    metrics = exercise.get("metrics", [])
+                                    st.markdown(f"**{exercise_name}**")
+                                    for instance_idx, instance in enumerate(exercise.get("instances", [])):
+                                        instance_metrics = instance.get("metrics", {})
+                                        if metrics:
+                                            cols = st.columns(len(metrics))
+                                            for col_idx, metric in enumerate(metrics):
+                                                widget_key = f"coach_edit_{client_username}_{session_id}_{superset_idx}_{exercise_idx}_{instance_idx}_{metric}"
+                                                with cols[col_idx]:
+                                                    current_value = instance_metrics.get(metric, 0)
+                                                    updated_value = st.number_input(
+                                                        metric,
+                                                        min_value=0,
+                                                        value=int(current_value) if current_value not in [None, ""] else 0,
+                                                        step=1,
+                                                        format="%d",
+                                                        key=widget_key,
+                                                    )
+                                                    instance_metrics[metric] = int(updated_value)
+                                    st.caption("")
+                        if st.button("Save Session", key=f"save_client_session_{session_id}", use_container_width=True):
+                            db.db.sessions.update_one({"_id": session.get("_id")}, {"$set": {"supersets": session.get("supersets", [])}})
+                            st.success(f"Saved {session.get('name', 'session')}")
+                            st.rerun()
+                else:
+                    st.caption("No sessions assigned to this client yet.")
     else:
         st.caption("No clients yet.")
 
