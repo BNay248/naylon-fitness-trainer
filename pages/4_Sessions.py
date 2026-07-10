@@ -186,6 +186,7 @@ if st.session_state.get("authentication_status"):
     def render_session_card(session):
         session_id = str(session.get("_id"))
         edit_mode = st.session_state.get(f"editing_session_{session_id}", False)
+
         with st.expander(f"{session.get('name', 'Untitled Session')}", expanded=False):
             st.caption(f"{len(session.get('supersets', []))} superset(s)")
 
@@ -349,19 +350,24 @@ if st.session_state.get("authentication_status"):
                             for instance_idx, instance in enumerate(exercise.get("instances", [])):
                                 st.caption(f"Round {instance_idx + 1}")
                                 instance_metrics = instance.get("metrics", {})
-                                for metric in metrics:
-                                    current_value = instance_metrics.get(metric)
-                                    if current_value in [None, ""]:
-                                        current_value = previous_metrics.get(metric, 0)
-                                    widget_key = field_key(session_id, superset_idx, exercise_idx, instance_idx, metric)
-                                    st.number_input(
-                                        metric,
-                                        min_value=0,
-                                    value=int(current_value) if current_value not in [None, ""] else 0,
-                                    step=1,
-                                    format="%d",
-                                    key=widget_key,
-                                )                            
+                                if metrics:
+                                    cols = st.columns(len(metrics))
+                                    for col_idx, metric in enumerate(metrics):
+                                        current_value = instance_metrics.get(metric)
+                                        if current_value in [None, ""]:
+                                            current_value = previous_metrics.get(metric, 0)
+                                        widget_key = field_key(session_id, superset_idx, exercise_idx, instance_idx, metric)
+                                        with cols[col_idx]:
+                                            st.number_input(
+                                                metric,
+                                                min_value=0,
+                                                value=int(current_value) if current_value not in [None, ""] else 0,
+                                                step=1,
+                                                format="%d",
+                                                key=widget_key,
+                                            )
+                                else:
+                                    st.caption("No metrics configured for this exercise")
 
                 if st.button("Save Session", key=f"save_session_{session_id}", use_container_width=True):
                     updated_supersets = []
