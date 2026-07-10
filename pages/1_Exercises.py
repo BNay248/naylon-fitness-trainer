@@ -56,7 +56,7 @@ if st.session_state.get("authentication_status"):
                 
                 # Insert into database
                 db.db.exercises.insert_one(exercise_item)
-                st.rerun(scope="app")
+                st.toast("Exercise added successfully", icon="✅")
 
     exercise_creation_form()
 
