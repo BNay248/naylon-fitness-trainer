@@ -38,6 +38,7 @@ if st.session_state.get("authentication_status"):
         with st.container(border=True):
             selected_name = st.text_input("Exercise Name*", key="create_exercise_name")
             selected_instructions = st.text_area("Instructions*", key="create_exercise_description")
+            selected_video_url = st.text_input("Video URL (optional)", key="create_exercise_video_url")
             #Metrics
             selected_metrics = st.segmented_control("Metrics", options=possible_metrics, selection_mode="multi", width="stretch", key="create_exercise_metrics")
             if st.button("Add Exercise", key="submit_exercise", width="stretch"):
@@ -49,6 +50,7 @@ if st.session_state.get("authentication_status"):
                 exercise_item = {
                     "name": selected_name,
                     "instructions": selected_instructions,
+                    "video_url": selected_video_url.strip() if selected_video_url else "",
                     "metrics": selected_metrics
                 }
                 
@@ -66,6 +68,7 @@ if st.session_state.get("authentication_status"):
         with st.expander(f"{exercise['name']}"):
             edit_name = st.text_input("Exercise Name*", value=exercise.get('name', ''), key=f"edit_{exercise['_id']}_name")
             edit_instructions = st.text_area("Instructions*", value=exercise.get('instructions', ''), key=f"edit_{exercise['_id']}_instructions")
+            edit_video_url = st.text_input("Video URL (optional)", value=exercise.get('video_url', ''), key=f"edit_{exercise['_id']}_video_url")
             #Metrics
             edit_metrics = st.segmented_control("Metrics", options=possible_metrics, selection_mode="multi", default=exercise.get('metrics', []), key=f"edit_{exercise['_id']}_metrics")
             col_save, col_delete = st.columns(2)
@@ -76,6 +79,7 @@ if st.session_state.get("authentication_status"):
                     update_data = {
                         "name": edit_name,
                         "instructions": edit_instructions,
+                        "video_url": edit_video_url.strip() if edit_video_url else "",
                         "metrics": edit_metrics
                     }
                     

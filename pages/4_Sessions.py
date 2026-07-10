@@ -1,4 +1,6 @@
+import re
 import streamlit as st
+import streamlit.components.v1 as components
 from datetime import datetime
 from db_manager import TrainerDB
 from auth_helper import load_config, create_authenticator, render_login_and_registration
@@ -14,6 +16,40 @@ render_login_and_registration(authenticator, config, db)
 
 def field_key(session_id, superset_idx, exercise_idx, instance_idx, metric):
     return f"{session_id}_{superset_idx}_{exercise_idx}_{instance_idx}_{metric}".replace(" ", "_").replace("-", "_")
+
+
+def normalize_youtube_url(value):
+    if not isinstance(value, str) or not value.strip():
+        return None
+
+    match = re.search(r"(?:youtube\.com\/(?:watch\?v=|embed\/|shorts\/)|youtu\.be\/)([A-Za-z0-9_-]{11})", value)
+    if match:
+        return f"https://www.youtube.com/embed/{match.group(1)}"
+    return None
+
+
+def get_exercise_video_url(exercise):
+    exercise_details = None
+    exercise_id = exercise.get("exercise_id")
+    if exercise_id:
+        exercise_details = db.get_exercise(exercise_id)
+
+    if not exercise_details and exercise.get("name"):
+        exercise_details = db.db.exercises.find_one({"name": exercise.get("name")})
+
+    if not exercise_details:
+        return None
+
+    for field in ["video_url", "video_link", "youtube_url", "url", "link"]:
+        value = exercise_details.get(field)
+        if isinstance(value, str) and value.strip():
+            return normalize_youtube_url(value)
+
+    instructions = exercise_details.get("instructions", "")
+    if isinstance(instructions, str):
+        return normalize_youtube_url(instructions)
+
+    return None
 
 
 # Check authentication status from session state
@@ -176,6 +212,11 @@ if st.session_state.get("authentication_status"):
                     if previous_metrics:
                         previous_text = ", ".join([f"{metric}: {previous_metrics[metric]}" for metric in metrics if metric in previous_metrics])
                         st.caption(f"Previous: {previous_text}")
+
+                    video_url = get_exercise_video_url(exercise)
+                    if video_url:
+                        st.caption("Demo video")
+                        components.iframe(video_url, width=560, height=315, scrolling=False)
 
                     for instance_idx, instance in enumerate(exercise.get("instances", [])):
                         st.caption(f"Round {instance_idx + 1}")
