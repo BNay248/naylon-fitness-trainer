@@ -20,7 +20,6 @@ if st.session_state.get("authentication_status"):
     # Initialize database
     db = TrainerDB()
     
-    @st.cache_data(show_spinner=False)
     def get_exercises():
         exercises = list(db.db.exercises.find())
         return exercises
