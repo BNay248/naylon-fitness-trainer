@@ -112,6 +112,8 @@ if st.session_state.get("authentication_status"):
                         min_value=1,
                         max_value=20,
                         value=int(superset.get("repeats", 1)),
+                        step=1,
+                        format="%d",
                         key=f"new_superset_repeats_{username}_{superset_idx}",
                     )
                     superset["repeats"] = int(repeats)
@@ -229,6 +231,8 @@ if st.session_state.get("authentication_status"):
                             min_value=1,
                             max_value=20,
                             value=int(superset.get("repeats", 1)),
+                            step=1,
+                            format="%d",
                             key=f"edit_superset_repeats_{session_id}_{superset_idx}",
                         )
                         superset["repeats"] = int(repeats)
@@ -348,11 +352,10 @@ if st.session_state.get("authentication_status"):
                                 widget_key = field_key(session_id, superset_idx, exercise_idx, instance_idx, metric)
                                 st.number_input(
                                     metric,
-                                    min_value=0.0,
-                                    value=float(current_value) if current_value not in [None, ""] else 0.0,
-                                    step=1.0,
-                                    key=widget_key,
-                                )
+                                min_value=0,
+                                value=int(current_value) if current_value not in [None, ""] else 0,
+                                step=1,
+                                format="%d",
 
                 if st.button("Save Session", key=f"save_{session_id}", use_container_width=True):
                     updated_supersets = []
