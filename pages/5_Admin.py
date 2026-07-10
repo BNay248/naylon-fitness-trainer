@@ -28,6 +28,7 @@ if st.session_state.get("authentication_status"):
         new_name = st.text_input("Full Name*")
         new_email = st.text_input("Email*")
         new_password = st.text_input("Password*", type="password")
+        create_as_coach = st.toggle("Create as coach", value=False, help="Turn this on to create a coach account instead of a client account.")
         
         submitted = st.form_submit_button("Create User")
         
@@ -37,13 +38,32 @@ if st.session_state.get("authentication_status"):
                     st.error("Username already exists!")
                 else:
                     hashed_pw = bcrypt.hashpw(new_password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
-                    db.add_user({
+                    role = "coach" if create_as_coach else "client"
+                    base_user_data = {
                         'username': new_username,
                         'name': new_name,
                         'email': new_email,
-                        'password': hashed_pw
-                    })
-                    st.success("User created successfully.")
+                        'password': hashed_pw,
+                        'role': role
+                    }
+                    db.add_user(base_user_data)
+
+                    if create_as_coach:
+                        db.add_coach({
+                            'username': new_username,
+                            'name': new_name,
+                            'email': new_email,
+                            'role': role
+                        })
+                    else:
+                        db.add_client({
+                            'username': new_username,
+                            'name': new_name,
+                            'email': new_email,
+                            'role': role
+                        })
+
+                    st.success(f"User created successfully as a {role}.")
                     st.rerun()
             else:
                 st.error("Please fill all fields")
