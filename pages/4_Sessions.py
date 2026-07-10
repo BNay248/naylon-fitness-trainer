@@ -187,6 +187,46 @@ if st.session_state.get("authentication_status"):
         session_id = str(session.get("_id"))
         edit_mode = st.session_state.get(f"editing_session_{session_id}", False)
 
+        @st.fragment
+        def render_superset_content(superset_idx, superset):
+            with st.expander(f"Superset {superset_idx + 1} • {superset.get('repeats', 1)} round(s)", expanded=False):
+                st.caption(f"Repeat this superset {superset.get('repeats', 1)} time(s)")
+                for exercise_idx, exercise in enumerate(superset.get("exercises", [])):
+                    exercise_name = exercise.get("name", "Untitled")
+                    metrics = exercise.get("metrics", [])
+                    previous_metrics = get_previous_metrics(exercise_name, metrics, get_user_sessions())
+                    st.markdown(f"**{exercise_name}**")
+                    if previous_metrics:
+                        previous_text = ", ".join([f"{metric}: {previous_metrics[metric]}" for metric in metrics if metric in previous_metrics])
+                        st.caption(f"Previous: {previous_text}")
+
+                    video_url = get_exercise_video_url(exercise)
+                    if show_videos and video_url:
+                        st.caption("Demo video")
+                        components.iframe(video_url, width=560, height=315, scrolling=False)
+
+                    for instance_idx, instance in enumerate(exercise.get("instances", [])):
+                        st.caption(f"Round {instance_idx + 1}")
+                        instance_metrics = instance.get("metrics", {})
+                        if metrics:
+                            cols = st.columns(len(metrics))
+                            for col_idx, metric in enumerate(metrics):
+                                current_value = instance_metrics.get(metric)
+                                if current_value in [None, ""]:
+                                    current_value = previous_metrics.get(metric, 0)
+                                widget_key = field_key(session_id, superset_idx, exercise_idx, instance_idx, metric)
+                                with cols[col_idx]:
+                                    st.number_input(
+                                        metric,
+                                        min_value=0,
+                                        value=int(current_value) if current_value not in [None, ""] else 0,
+                                        step=1,
+                                        format="%d",
+                                        key=widget_key,
+                                    )
+                        else:
+                            st.caption("No metrics configured for this exercise")
+
         with st.expander(f"{session.get('name', 'Untitled Session')}", expanded=False):
             st.caption(f"{len(session.get('supersets', []))} superset(s)")
 
@@ -331,43 +371,7 @@ if st.session_state.get("authentication_status"):
                         st.rerun(scope="fragment")
             else:
                 for superset_idx, superset in enumerate(session.get("supersets", [])):
-                    with st.expander(f"Superset {superset_idx + 1} • {superset.get('repeats', 1)} round(s)", expanded=False):
-                        st.caption(f"Repeat this superset {superset.get('repeats', 1)} time(s)")
-                        for exercise_idx, exercise in enumerate(superset.get("exercises", [])):
-                            exercise_name = exercise.get("name", "Untitled")
-                            metrics = exercise.get("metrics", [])
-                            previous_metrics = get_previous_metrics(exercise_name, metrics, get_user_sessions())
-                            st.markdown(f"**{exercise_name}**")
-                            if previous_metrics:
-                                previous_text = ", ".join([f"{metric}: {previous_metrics[metric]}" for metric in metrics if metric in previous_metrics])
-                                st.caption(f"Previous: {previous_text}")
-
-                            video_url = get_exercise_video_url(exercise)
-                            if show_videos and video_url:
-                                st.caption("Demo video")
-                                components.iframe(video_url, width=560, height=315, scrolling=False)
-
-                            for instance_idx, instance in enumerate(exercise.get("instances", [])):
-                                st.caption(f"Round {instance_idx + 1}")
-                                instance_metrics = instance.get("metrics", {})
-                                if metrics:
-                                    cols = st.columns(len(metrics))
-                                    for col_idx, metric in enumerate(metrics):
-                                        current_value = instance_metrics.get(metric)
-                                        if current_value in [None, ""]:
-                                            current_value = previous_metrics.get(metric, 0)
-                                        widget_key = field_key(session_id, superset_idx, exercise_idx, instance_idx, metric)
-                                        with cols[col_idx]:
-                                            st.number_input(
-                                                metric,
-                                                min_value=0,
-                                                value=int(current_value) if current_value not in [None, ""] else 0,
-                                                step=1,
-                                                format="%d",
-                                                key=widget_key,
-                                            )
-                                else:
-                                    st.caption("No metrics configured for this exercise")
+                    render_superset_content(superset_idx, superset)
 
                 if st.button("Save Session", key=f"save_session_{session_id}", use_container_width=True):
                     updated_supersets = []
