@@ -216,6 +216,10 @@ if st.session_state.get("authentication_status"):
                         st.session_state[f"delete_confirm_{session_id}"] = True
                         st.rerun(scope="fragment")
 
+            show_videos = st.session_state.get(f"show_videos_toggle_{session_id}", False)
+            if not edit_mode:
+                show_videos = st.checkbox("Show videos", value=show_videos, key=f"show_videos_toggle_{session_id}")
+
             if edit_mode:
                 session_edit = st.session_state.setdefault(f"session_edit_{session_id}", deepcopy(session))
                 session_name = st.text_input("Session Name*", value=session_edit.get("name", ""), key=f"edit_session_name_{session_id}")
@@ -338,7 +342,7 @@ if st.session_state.get("authentication_status"):
                             st.caption(f"Previous: {previous_text}")
 
                         video_url = get_exercise_video_url(exercise)
-                        if video_url:
+                        if show_videos and video_url:
                             st.caption("Demo video")
                             components.iframe(video_url, width=560, height=315, scrolling=False)
 
