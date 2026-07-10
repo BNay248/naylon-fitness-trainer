@@ -66,12 +66,21 @@ if st.session_state.get("authentication_status"):
 
     db = TrainerDB()
     username = st.session_state.get("username", "")
+    current_user = db.get_user_by_username(username) or {}
+    current_role = current_user.get("role", "client")
+    accepted_clients = [client for client in (current_user.get("clients", []) or []) if isinstance(client, str) and client]
 
     def get_exercises():
         return sorted(list(db.db.exercises.find()), key=lambda item: str(item.get("name", "")).lower())
 
     def get_user_sessions():
-        sessions = list(db.db.sessions.find({"user_id": username}))
+        sessions = list(db.db.sessions.find({
+            "$or": [
+                {"user_id": username},
+                {"assigned_to": username},
+                {"coach_username": username}
+            ]
+        }))
         return sorted(sessions, key=lambda item: str(item.get("name", "")).lower())
 
     def get_previous_metrics(exercise_name, metrics, sessions):
@@ -90,19 +99,36 @@ if st.session_state.get("authentication_status"):
                             return previous_values
         return previous_values
 
-    def build_session_document(session_name, supersets):
-        return {
+    def build_session_document(session_name, supersets, assigned_to=None):
+        target_user_id = assigned_to or username
+        document = {
             "name": session_name,
-            "user_id": username,
+            "user_id": target_user_id,
+            "coach_username": username,
             "created_at": datetime.now(),
             "supersets": supersets,
         }
+        if assigned_to:
+            document["assigned_to"] = assigned_to
+        return document
 
     @st.fragment
     def render_create_session_form():
         with st.expander("Create New Session", expanded=False):
             st.caption("Build a session with supersets and repeated exercise rounds.")
             session_name = st.text_input("Session Name*", key=f"new_session_name_{username}")
+
+            assigned_client = ""
+            if current_role == "coach":
+                if accepted_clients:
+                    assigned_client = st.selectbox(
+                        "Assign to client (optional)",
+                        options=[""] + accepted_clients,
+                        format_func=lambda value: "Myself" if not value else value,
+                        key=f"assign_client_{username}",
+                    )
+                else:
+                    st.caption("No accepted clients yet.")
 
             if "new_session_supersets" not in st.session_state:
                 st.session_state["new_session_supersets"] = [{"repeats": 1, "exercises": [{"exercise_id": "", "name": "", "metrics": []}]}]
@@ -182,7 +208,7 @@ if st.session_state.get("authentication_status"):
                 elif not valid_supersets:
                     st.error("Please add at least one exercise")
                 else:
-                    db.db.sessions.insert_one(build_session_document(session_name.strip(), valid_supersets))
+                    db.db.sessions.insert_one(build_session_document(session_name.strip(), valid_supersets, assigned_client or None))
                     st.session_state.pop(f"new_session_name_{username}", None)
                     st.session_state["new_session_supersets"] = [{"repeats": 1, "exercises": [{"exercise_id": "", "name": "", "metrics": []}]}]
                     st.success("Session created")
