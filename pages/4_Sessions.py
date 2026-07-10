@@ -74,13 +74,7 @@ if st.session_state.get("authentication_status"):
         return sorted(list(db.db.exercises.find()), key=lambda item: str(item.get("name", "")).lower())
 
     def get_user_sessions():
-        sessions = list(db.db.sessions.find({
-            "$or": [
-                {"user_id": username},
-                {"assigned_to": username},
-                {"coach_username": username}
-            ]
-        }))
+        sessions = list(db.db.sessions.find({"user_id": username}))
         return sorted(sessions, key=lambda item: str(item.get("name", "")).lower())
 
     def get_previous_metrics(exercise_name, metrics, sessions):
