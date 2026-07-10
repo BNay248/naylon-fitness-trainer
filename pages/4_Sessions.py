@@ -201,6 +201,8 @@ if st.session_state.get("authentication_status"):
                 repeat_count = max(int(superset.get("repeats", 1)), max((len(exercise.get("instances", [])) for exercise in exercises), default=1))
 
                 for repeat_idx in range(repeat_count):
+                    if repeat_idx > 0:
+                        st.divider()
                     st.markdown(f"***Repeat {repeat_idx + 1}***")
                     for exercise_idx, exercise in enumerate(exercises):
                         exercise_name = exercise.get("name", "Untitled")
