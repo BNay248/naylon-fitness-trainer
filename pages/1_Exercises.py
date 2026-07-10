@@ -56,7 +56,6 @@ if st.session_state.get("authentication_status"):
                 
                 # Insert into database
                 db.db.exercises.insert_one(exercise_item)
-                get_exercises.clear()  # Clear cache to refresh exercise list
                 st.rerun(scope="app")
 
     exercise_creation_form()
@@ -85,10 +84,8 @@ if st.session_state.get("authentication_status"):
                     
                     # Update in database
                     db.db.exercises.update_one({"_id": exercise["_id"]}, {"$set": update_data})
-                    get_exercises.clear()  # Clear cache to refresh exercise list
                     st.rerun(scope="app")
             with col_delete:
                 if st.button("Delete", key=f"delete_{exercise['_id']}", width="stretch"):
                     db.db.exercises.delete_one({"_id": exercise["_id"]})
-                    get_exercises.clear()
                     st.rerun(scope="app")
