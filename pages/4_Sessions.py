@@ -356,8 +356,10 @@ if st.session_state.get("authentication_status"):
                                 value=int(current_value) if current_value not in [None, ""] else 0,
                                 step=1,
                                 format="%d",
+                                key=widget_key,
+                            )
 
-                if st.button("Save Session", key=f"save_{session_id}", use_container_width=True):
+        if st.button("Save Session", key=f"save_{session_id}", use_container_width=True):
                     updated_supersets = []
                     for superset_idx, superset in enumerate(session.get("supersets", [])):
                         updated_exercises = []
