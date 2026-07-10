@@ -62,30 +62,30 @@ if st.session_state.get("authentication_status"):
 
     # Display existing exercises
     st.subheader("All Exercises")
-    exercises = get_exercises()
-    for exercise in exercises:
+
+    @st.fragment
+    def render_exercise_editor(exercise):
         with st.expander(f"{exercise['name']}"):
             edit_name = st.text_input("Exercise Name*", value=exercise.get('name', ''), key=f"edit_{exercise['_id']}_name")
             edit_instructions = st.text_area("Instructions*", value=exercise.get('instructions', ''), key=f"edit_{exercise['_id']}_instructions")
             edit_video_url = st.text_input("Video URL (optional)", value=exercise.get('video_url', ''), key=f"edit_{exercise['_id']}_video_url")
-            #Metrics
             edit_metrics = st.segmented_control("Metrics", options=possible_metrics, selection_mode="multi", default=exercise.get('metrics', []), key=f"edit_{exercise['_id']}_metrics")
             col_save, col_delete = st.columns(2)
             with col_save:
                 if st.button("Save", key=f"save_{exercise['_id']}", width="stretch"):
-                    
-                    # Update exercise item
                     update_data = {
                         "name": edit_name,
                         "instructions": edit_instructions,
                         "video_url": edit_video_url.strip() if edit_video_url else "",
                         "metrics": edit_metrics
                     }
-                    
-                    # Update in database
                     db.db.exercises.update_one({"_id": exercise["_id"]}, {"$set": update_data})
                     st.rerun(scope="app")
             with col_delete:
                 if st.button("Delete", key=f"delete_{exercise['_id']}", width="stretch"):
                     db.db.exercises.delete_one({"_id": exercise["_id"]})
                     st.rerun(scope="app")
+
+    exercises = get_exercises()
+    for exercise in exercises:
+        render_exercise_editor(exercise)
