@@ -363,31 +363,31 @@ if st.session_state.get("authentication_status"):
                                     key=widget_key,
                                 )                            
 
-        if st.button("Save Session", key=f"save_{session_id}", use_container_width=True):
-                    updated_supersets = []
-                    for superset_idx, superset in enumerate(session.get("supersets", [])):
-                        updated_exercises = []
-                        for exercise_idx, exercise in enumerate(superset.get("exercises", [])):
-                            instances = []
-                            for instance_idx, instance in enumerate(exercise.get("instances", [])):
-                                metric_values = {}
-                                for metric in exercise.get("metrics", []):
-                                    widget_key = field_key(session_id, superset_idx, exercise_idx, instance_idx, metric)
-                                    metric_values[metric] = st.session_state.get(widget_key, instance.get("metrics", {}).get(metric, 0))
-                                instances.append({"metrics": metric_values})
-                            updated_exercises.append({
-                                "exercise_id": exercise.get("exercise_id", ""),
-                                "name": exercise.get("name", ""),
-                                "metrics": exercise.get("metrics", []),
-                                "instances": instances,
-                            })
-                        updated_supersets.append({
-                            "repeats": superset.get("repeats", 1),
-                            "exercises": updated_exercises,
-                        })
-                    db.db.sessions.update_one({"_id": session.get("_id")}, {"$set": {"supersets": updated_supersets}})
-                    st.success("Session saved")
-                    st.rerun(scope="app")
+                        if st.button("Save Session", key=f"save_{session_id}", use_container_width=True):
+                            updated_supersets = []
+                            for superset_idx, superset in enumerate(session.get("supersets", [])):
+                                updated_exercises = []
+                                for exercise_idx, exercise in enumerate(superset.get("exercises", [])):
+                                    instances = []
+                                    for instance_idx, instance in enumerate(exercise.get("instances", [])):
+                                        metric_values = {}
+                                        for metric in exercise.get("metrics", []):
+                                            widget_key = field_key(session_id, superset_idx, exercise_idx, instance_idx, metric)
+                                            metric_values[metric] = st.session_state.get(widget_key, instance.get("metrics", {}).get(metric, 0))
+                                        instances.append({"metrics": metric_values})
+                                    updated_exercises.append({
+                                        "exercise_id": exercise.get("exercise_id", ""),
+                                        "name": exercise.get("name", ""),
+                                        "metrics": exercise.get("metrics", []),
+                                        "instances": instances,
+                                    })
+                                updated_supersets.append({
+                                    "repeats": superset.get("repeats", 1),
+                                    "exercises": updated_exercises,
+                                })
+                            db.db.sessions.update_one({"_id": session.get("_id")}, {"$set": {"supersets": updated_supersets}})
+                            st.success("Session saved")
+                            st.rerun(scope="app")
 
     st.title("Training Sessions")
     st.info("Build your weekly workout flow with supersets and repeat-based exercise rounds.")
