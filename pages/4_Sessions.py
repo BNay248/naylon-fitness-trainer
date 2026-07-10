@@ -53,6 +53,12 @@ def get_exercise_video_url(exercise):
     return None
 
 
+def coerce_int(value):
+    if value is None or value == "":
+        return 0
+    return int(value)
+
+
 # Check authentication status from session state
 if st.session_state.get("authentication_status"):
     authenticator.logout(location='sidebar')
@@ -191,22 +197,27 @@ if st.session_state.get("authentication_status"):
         def render_superset_content(superset_idx, superset):
             with st.expander(f"Superset {superset_idx + 1} • {superset.get('repeats', 1)} round(s)", expanded=False):
                 st.caption(f"Repeat this superset {superset.get('repeats', 1)} time(s)")
-                for exercise_idx, exercise in enumerate(superset.get("exercises", [])):
-                    exercise_name = exercise.get("name", "Untitled")
-                    metrics = exercise.get("metrics", [])
-                    previous_metrics = get_previous_metrics(exercise_name, metrics, get_user_sessions())
-                    st.markdown(f"**{exercise_name}**")
-                    if previous_metrics:
-                        previous_text = ", ".join([f"{metric}: {previous_metrics[metric]}" for metric in metrics if metric in previous_metrics])
-                        st.caption(f"Previous: {previous_text}")
+                exercises = superset.get("exercises", [])
+                repeat_count = max(int(superset.get("repeats", 1)), max((len(exercise.get("instances", [])) for exercise in exercises), default=1))
 
-                    video_url = get_exercise_video_url(exercise)
-                    if show_videos and video_url:
-                        st.caption("Demo video")
-                        components.iframe(video_url, width=560, height=315, scrolling=False)
+                for repeat_idx in range(repeat_count):
+                    st.markdown(f"***Repeat {repeat_idx + 1}***")
+                    for exercise_idx, exercise in enumerate(exercises):
+                        exercise_name = exercise.get("name", "Untitled")
+                        metrics = exercise.get("metrics", [])
+                        previous_metrics = get_previous_metrics(exercise_name, metrics, get_user_sessions())
+                        st.markdown(f"**{exercise_name}**")
+                        if previous_metrics:
+                            previous_text = ", ".join([f"{metric}: {previous_metrics[metric]}" for metric in metrics if metric in previous_metrics])
+                            st.caption(f"Previous: {previous_text}")
 
-                    for instance_idx, instance in enumerate(exercise.get("instances", [])):
-                        st.caption(f"Round {instance_idx + 1}")
+                        video_url = get_exercise_video_url(exercise)
+                        if show_videos and video_url:
+                            st.caption("Demo video")
+                            components.iframe(video_url, width=560, height=315, scrolling=False)
+
+                        instances = exercise.get("instances", [])
+                        instance = instances[repeat_idx] if repeat_idx < len(instances) else {"metrics": {}}
                         instance_metrics = instance.get("metrics", {})
                         if metrics:
                             cols = st.columns(len(metrics))
@@ -214,12 +225,13 @@ if st.session_state.get("authentication_status"):
                                 current_value = instance_metrics.get(metric)
                                 if current_value in [None, ""]:
                                     current_value = previous_metrics.get(metric, 0)
-                                widget_key = field_key(session_id, superset_idx, exercise_idx, instance_idx, metric)
+                                numeric_value = coerce_int(current_value)
+                                widget_key = field_key(session_id, superset_idx, exercise_idx, repeat_idx, metric)
                                 with cols[col_idx]:
                                     st.number_input(
                                         metric,
                                         min_value=0,
-                                        value=int(current_value) if current_value not in [None, ""] else 0,
+                                        value=numeric_value,
                                         step=1,
                                         format="%d",
                                         key=widget_key,
