@@ -1,3 +1,4 @@
+from copy import deepcopy
 import streamlit as st
 from db_manager import TrainerDB
 from auth_helper import load_config, create_authenticator, render_login_and_registration
