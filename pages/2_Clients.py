@@ -43,7 +43,9 @@ if st.session_state.get("authentication_status"):
     for user in db.get_all_users():
         if user.get("username") == current_username:
             continue
-        if user.get("role") != "client":
+
+        role_value = user.get("role")
+        if role_value == "coach":
             continue
 
         username = user.get("username", "")

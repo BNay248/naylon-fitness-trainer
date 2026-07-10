@@ -86,7 +86,8 @@ def render_login_and_registration(authenticator, config, db=None):
                             'username': reg_username,
                             'name': reg_name,
                             'email': reg_email,
-                            'password': hashed_pw
+                            'password': hashed_pw,
+                            'role': 'client'
                         })
                         st.success("Registration complete. Please log in with your new credentials.")
                         sleep(3)
