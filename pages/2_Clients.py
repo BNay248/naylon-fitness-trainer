@@ -190,7 +190,17 @@ if st.session_state.get("authentication_status"):
     st.subheader("Pending requests sent")
     pending_requests = current_user.get("pending_client_requests", []) or []
     if pending_requests:
+        col1, col2 = st.columns(2)
         for client_username in pending_requests:
-            st.write(f"• {client_username}")
+            with col1:
+                st.write(f"• {client_username}")
+            with col2:
+                if st.button("Cancel Request", key=f"cancel_request_{client_username}", use_container_width=True):
+                    db.db.users.update_one({"username": current_username}, {"$pull": {"pending_client_requests": client_username}})
+                    db.db.users.update_one({"username": client_username}, {"$pull": {"pending_coach_requests": current_username}})
+                    st.info(f"Request to {client_username} has been canceled.")
+                    sleep(.75)
+                    st.rerun()
+
     else:
         st.caption("No pending requests.")
