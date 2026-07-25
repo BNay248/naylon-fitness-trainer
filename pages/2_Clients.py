@@ -1,4 +1,5 @@
 from copy import deepcopy
+from time import sleep
 import streamlit as st
 from db_manager import TrainerDB
 from auth_helper import load_config, create_authenticator, render_login_and_registration
@@ -28,15 +29,7 @@ if st.session_state.get("authentication_status"):
     st.title("Manage Clients")
 
     if role != "coach":
-        st.info("This page is for coaches to find and request clients.")
-        st.subheader("Your current clients")
-        current_clients = current_user.get("clients", []) or []
-        if current_clients:
-            for client_username in current_clients:
-                st.write(f"• {client_username}")
-        else:
-            st.caption("No clients yet.")
-        st.stop()
+        st.info("This page is for coaches to find and request clients.\n If you'd like to become a coach, please contact the administrator (bradleynaylon@yahoo.com).")
 
     st.info("Search for a client and send a request to connect.")
 
@@ -185,6 +178,12 @@ if st.session_state.get("authentication_status"):
                                     st.rerun()
                 else:
                     st.caption("No sessions assigned to this client yet.")
+                if st.button("Remove Client", key=f"remove_client_{client_username}", use_container_width=True):
+                    db.db.users.update_one({"username": current_username}, {"$pull": {"clients": client_username}})
+                    db.db.users.update_one({"username": client_username}, {"$pull": {"coaches": current_username}})
+                    st.success(f"{client_username} has been removed from your clients.")
+                    sleep(2)
+                    st.rerun()
     else:
         st.caption("No clients yet.")
 
