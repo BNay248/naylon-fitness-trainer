@@ -434,6 +434,8 @@ if st.session_state.get("authentication_status"):
                     db.db.sessions.update_one({"_id": session.get("_id")}, {"$set": {"supersets": updated_supersets}})
                     st.success("Session saved")
                     sleep(.75)
+                    for expander in st.session_state.get('expanders', []):
+                        expander.close()
                     st.rerun(scope="app")
 
     st.title("Training Sessions")
