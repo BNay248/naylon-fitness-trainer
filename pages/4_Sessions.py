@@ -432,6 +432,15 @@ if st.session_state.get("authentication_status"):
                         })
                     db.db.sessions.update_one({"_id": session.get("_id")}, {"$set": {"supersets": updated_supersets}})
                     st.success("Session saved")
+                    
+                    # Clear all inputs
+                    for superset_idx, superset in enumerate(session.get("supersets", [])):
+                        for exercise_idx, exercise in enumerate(superset.get("exercises", [])):
+                            for instance_idx, _ in enumerate(exercise.get("instances", [])):
+                                for metric in exercise.get("metrics", []):
+                                    widget_key = field_key(session_id, superset_idx, exercise_idx, instance_idx, metric)
+                                    st.session_state[widget_key] = None  # Reset the value to its initial state or None
+
                     st.rerun(scope="app")
 
     st.title("Training Sessions")
