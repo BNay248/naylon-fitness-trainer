@@ -209,7 +209,7 @@ if st.session_state.get("authentication_status"):
                     st.rerun(scope="app")
 
     @st.fragment
-    def render_session_card(session):
+    def render_session_card(session, coach_view: bool = False):
         session_id = str(session.get("_id"))
         edit_mode = st.session_state.get(f"editing_session_{session_id}", False)
 
@@ -287,9 +287,10 @@ if st.session_state.get("authentication_status"):
                             st.session_state[f"session_edit_{session_id}"] = deepcopy(session)
                         st.rerun(scope="fragment")
                 with button_col_2:
-                    if st.button("Delete Session", key=f"delete_{session_id}", use_container_width=True):
-                        st.session_state[f"delete_confirm_{session_id}"] = True
-                        st.rerun(scope="fragment")
+                    if not coach_view:
+                        if st.button("Delete Session", key=f"delete_{session_id}", use_container_width=True):
+                            st.session_state[f"delete_confirm_{session_id}"] = True
+                            st.rerun(scope="fragment")
 
             show_videos = st.session_state.get(f"show_videos_toggle_{session_id}", False)
             if not edit_mode:
@@ -443,7 +444,7 @@ if st.session_state.get("authentication_status"):
         st.caption("No sessions yet. Create your first one above.")
     else:
         for session in user_sessions:
-            render_session_card(session)
+            render_session_card(session, False)
     if current_role == "coach":
         st.divider()
         st.subheader("Client Sessions")
@@ -452,6 +453,6 @@ if st.session_state.get("authentication_status"):
                 client_sessions = list(db.db.sessions.find({"user_id": client_username}))
                 if client_sessions:
                     for session in client_sessions:
-                        render_session_card(session)
+                        render_session_card(session, True)
                 else:
                     st.caption("No sessions assigned to this client yet.")
