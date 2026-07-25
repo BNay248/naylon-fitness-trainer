@@ -444,3 +444,14 @@ if st.session_state.get("authentication_status"):
     else:
         for session in user_sessions:
             render_session_card(session)
+    if current_role == "coach":
+        st.divider()
+        st.subheader("Client Sessions")
+        for client_username in accepted_clients:
+            with st.expander(f"{client_username}", expanded=False):
+                client_sessions = list(db.db.sessions.find({"user_id": client_username, "coach_username": username}))
+                if client_sessions:
+                    for session in client_sessions:
+                        render_session_card(session)
+                else:
+                    st.caption("No sessions assigned to this client yet.")
