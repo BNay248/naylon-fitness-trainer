@@ -43,10 +43,6 @@ if st.session_state.get("authentication_status"):
         if user.get("username") == current_username:
             continue
 
-        role_value = user.get("role")
-        if role_value == "coach":
-            continue
-
         username = user.get("username", "")
         if username in current_clients or username in pending_requests:
             continue
