@@ -17,15 +17,24 @@ if st.session_state.get("authentication_status"):
 
     db = TrainerDB()
     current_username = st.session_state.get("username")
-    current_user = db.get_user_by_username(current_username) or {}
-    role = current_user.get("role", "client")
+    if current_username:
+        current_user = db.get_user_by_username(current_username)
+    else:
+        st.error ("Error: No username found in session state.")
+        st.stop()
+
+    role = current_user.get("role", "client") if current_user else "client"
 
     st.title("Manage Coaches")
 
     if role != "client":
         st.info("This page is for clients to review coach requests.")
         st.subheader("Your current coaches")
-        current_coaches = current_user.get("coaches", []) or []
+        if current_user:
+            current_coaches = current_user.get("coaches", []) or []
+        else:
+            st.error("Error: Current user data not found.")
+            st.stop()
         if current_coaches:
             for coach_username in current_coaches:
                 st.write(f"• {coach_username}")
@@ -34,7 +43,11 @@ if st.session_state.get("authentication_status"):
         st.stop()
 
     st.subheader("Coach requests")
-    pending_requests = current_user.get("pending_coach_requests", []) or []
+    if current_user:
+        pending_requests = current_user.get("pending_coach_requests", []) or []
+    else:
+        st.error("Error: Current user data not found.")
+        st.stop()
     if pending_requests:
         for coach_username in pending_requests:
             coach_user = db.get_user_by_username(coach_username) or {}

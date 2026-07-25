@@ -18,8 +18,12 @@ if st.session_state.get("authentication_status"):
 
     db = TrainerDB()
     current_username = st.session_state.get("username")
-    current_user = db.get_user_by_username(current_username) or {}
-    role = current_user.get("role", "client")
+    if current_username:
+        current_user = db.get_user_by_username(current_username) or {}
+    else:
+        st.error ("Error: No username found in session state.")
+        st.stop()
+    role = current_user.get("role", "client") if current_user else "client"
 
     st.title("Manage Clients")
 
@@ -163,7 +167,7 @@ if st.session_state.get("authentication_status"):
                                         if exercise_rows:
                                             valid_supersets.append({"repeats": int(superset.get("repeats", 1)), "exercises": exercise_rows})
 
-                                    if not session_name.strip():
+                                    if not session_name or not session_name.strip():
                                         st.error("Please enter a session name")
                                     elif not valid_supersets:
                                         st.error("Please add at least one exercise")

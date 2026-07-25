@@ -385,7 +385,7 @@ if st.session_state.get("authentication_status"):
                                     "exercises": exercise_rows,
                                 })
 
-                        if not session_name.strip():
+                        if not session_name or not session_name.strip():
                             st.error("Please enter a session name")
                         elif not valid_supersets:
                             st.error("Please add at least one exercise")
