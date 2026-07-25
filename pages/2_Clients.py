@@ -30,6 +30,7 @@ if st.session_state.get("authentication_status"):
 
     if role != "coach":
         st.info("This page is for coaches to find and request clients.\n If you'd like to become a coach, please contact the administrator (bradleynaylon@yahoo.com).")
+        st.stop()
 
     st.info("Search for a client and send a request to connect.")
 
