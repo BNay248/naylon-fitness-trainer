@@ -1,5 +1,6 @@
 import re
 from copy import deepcopy
+from time import sleep
 import streamlit as st
 import streamlit.components.v1 as components
 from datetime import datetime
@@ -418,7 +419,10 @@ if st.session_state.get("authentication_status"):
                                 metric_values = {}
                                 for metric in exercise.get("metrics", []):
                                     widget_key = field_key(session_id, superset_idx, exercise_idx, instance_idx, metric)
-                                    metric_values[metric] = st.session_state.get(widget_key, instance.get("metrics", {}).get(metric, 0))
+                                    if widget_key not in st.session_state:
+                                        st.session_state[widget_key] = instance.get("metrics", {}).get(metric, 0)
+                                    else:
+                                        metric_values[metric] = st.session_state[widget_key]
                                 instances.append({"metrics": metric_values})
                             updated_exercises.append({
                                 "exercise_id": exercise.get("exercise_id", ""),
@@ -439,8 +443,9 @@ if st.session_state.get("authentication_status"):
                             for instance_idx, _ in enumerate(exercise.get("instances", [])):
                                 for metric in exercise.get("metrics", []):
                                     widget_key = field_key(session_id, superset_idx, exercise_idx, instance_idx, metric)
-                                    st.session_state[widget_key] = None  # Reset the value to its initial state or None
-
+                                    if widget_key not in st.session_state:
+                                        st.session_state[widget_key] = None  # Reset the value to its initial state or None
+                    sleep(0.75)
                     st.rerun(scope="app")
 
     st.title("Training Sessions")
