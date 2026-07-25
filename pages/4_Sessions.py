@@ -419,10 +419,7 @@ if st.session_state.get("authentication_status"):
                                 metric_values = {}
                                 for metric in exercise.get("metrics", []):
                                     widget_key = field_key(session_id, superset_idx, exercise_idx, instance_idx, metric)
-                                    if widget_key not in st.session_state:
-                                        st.session_state[widget_key] = instance.get("metrics", {}).get(metric, 0)
-                                    else:
-                                        metric_values[metric] = st.session_state[widget_key]
+                                    metric_values[metric] = st.session_state.get(widget_key, instance.get("metrics", {}).get(metric, 0))
                                 instances.append({"metrics": metric_values})
                             updated_exercises.append({
                                 "exercise_id": exercise.get("exercise_id", ""),
@@ -436,16 +433,7 @@ if st.session_state.get("authentication_status"):
                         })
                     db.db.sessions.update_one({"_id": session.get("_id")}, {"$set": {"supersets": updated_supersets}})
                     st.success("Session saved")
-                    
-                    # Clear all inputs
-                    for superset_idx, superset in enumerate(session.get("supersets", [])):
-                        for exercise_idx, exercise in enumerate(superset.get("exercises", [])):
-                            for instance_idx, _ in enumerate(exercise.get("instances", [])):
-                                for metric in exercise.get("metrics", []):
-                                    widget_key = field_key(session_id, superset_idx, exercise_idx, instance_idx, metric)
-                                    if widget_key not in st.session_state:
-                                        st.session_state[widget_key] = None  # Reset the value to its initial state or None
-                    sleep(0.75)
+                    sleep(.75)
                     st.rerun(scope="app")
 
     st.title("Training Sessions")
