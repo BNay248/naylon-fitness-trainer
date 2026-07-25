@@ -1,3 +1,5 @@
+from time import sleep
+
 import streamlit as st
 from db_manager import TrainerDB
 from auth_helper import load_config, create_authenticator, render_login_and_registration
@@ -28,7 +30,6 @@ if st.session_state.get("authentication_status"):
     st.title("Manage Coaches")
 
     if role != "client":
-        st.info("This page is for clients to review coach requests.")
         st.subheader("Your current coaches")
         if current_user:
             current_coaches = current_user.get("coaches", []) or []
@@ -36,8 +37,17 @@ if st.session_state.get("authentication_status"):
             st.error("Error: Current user data not found.")
             st.stop()
         if current_coaches:
+            col1, col2 = st.columns(2)
             for coach_username in current_coaches:
-                st.write(f"• {coach_username}")
+                with col1:
+                    st.write(f"• {coach_username}")
+                with col2:
+                    if st.button("Remove Coach", key=f"remove_coach_{coach_username}", use_container_width=True):
+                        db.db.users.update_one({"username": current_username}, {"$pull": {"coaches": coach_username}})
+                        db.db.users.update_one({"username": coach_username}, {"$pull": {"clients": current_username}})
+                        st.success(f"{coach_username} has been removed from your coaches.")
+                        sleep(.75)
+                        st.rerun()
         else:
             st.caption("No coaches yet.")
         st.stop()
