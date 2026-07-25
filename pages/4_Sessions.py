@@ -453,6 +453,9 @@ if st.session_state.get("authentication_status"):
                 client_sessions = list(db.db.sessions.find({"user_id": client_username}))
                 if client_sessions:
                     for session in client_sessions:
-                        render_session_card(session, True)
+                        if session.get("coach_username") == username:
+                            render_session_card(session, False)
+                        else: 
+                            render_session_card(session, True)
                 else:
                     st.caption("No sessions assigned to this client yet.")
