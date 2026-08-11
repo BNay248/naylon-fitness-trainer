@@ -29,28 +29,27 @@ if st.session_state.get("authentication_status"):
 
     st.title("Manage Coaches")
 
-    if role != "client":
-        st.subheader("Your current coaches")
-        if current_user:
-            current_coaches = current_user.get("coaches", []) or []
-        else:
-            st.error("Error: Current user data not found.")
-            st.stop()
-        if current_coaches:
-            col1, col2 = st.columns(2)
-            for coach_username in current_coaches:
-                with col1:
-                    st.write(f"• {coach_username}")
-                with col2:
-                    if st.button("Remove Coach", key=f"remove_coach_{coach_username}", use_container_width=True):
-                        db.db.users.update_one({"username": current_username}, {"$pull": {"coaches": coach_username}})
-                        db.db.users.update_one({"username": coach_username}, {"$pull": {"clients": current_username}})
-                        st.success(f"{coach_username} has been removed from your coaches.")
-                        sleep(.75)
-                        st.rerun()
-        else:
-            st.caption("No coaches yet.")
+    st.subheader("Your current coaches")
+    if current_user:
+        current_coaches = current_user.get("coaches", []) or []
+    else:
+        st.error("Error: Current user data not found.")
         st.stop()
+    if current_coaches:
+        col1, col2 = st.columns(2)
+        for coach_username in current_coaches:
+            with col1:
+                st.write(f"• {coach_username}")
+            with col2:
+                if st.button("Remove Coach", key=f"remove_coach_{coach_username}", use_container_width=True):
+                    db.db.users.update_one({"username": current_username}, {"$pull": {"coaches": coach_username}})
+                    db.db.users.update_one({"username": coach_username}, {"$pull": {"clients": current_username}})
+                    st.success(f"{coach_username} has been removed from your coaches.")
+                    sleep(.75)
+                    st.rerun()
+    else:
+        st.caption("No coaches yet.")
+    st.stop()
 
     st.subheader("Coach requests")
     if current_user:
