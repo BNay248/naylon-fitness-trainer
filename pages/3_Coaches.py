@@ -25,8 +25,6 @@ if st.session_state.get("authentication_status"):
         st.error ("Error: No username found in session state.")
         st.stop()
 
-    role = current_user.get("role", "client") if current_user else "client"
-
     st.title("Manage Coaches")
 
     st.subheader("Your current coaches")
