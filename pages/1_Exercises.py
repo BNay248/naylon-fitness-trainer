@@ -13,6 +13,7 @@ render_login_and_registration(authenticator, config, db)
 
 # Check authentication status from session state
 if st.session_state.get("authentication_status"):
+    st.title("Manage Exercises")
     # User is authenticated
     authenticator.logout(location='sidebar')
     st.sidebar.write(f'Welcome *{st.session_state["name"]}*')
@@ -39,8 +40,6 @@ if st.session_state.get("authentication_status"):
         return exercises
     
     possible_metrics = ["Reps", "Weight", "Duration", "Calories", "Resistance", "Distance"]
-    
-    st.title("Manage Exercises")
     
     @st.fragment
     def exercise_creation_form():

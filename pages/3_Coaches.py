@@ -14,6 +14,7 @@ render_login_and_registration(authenticator, config, db)
 
 # Check authentication status from session state
 if st.session_state.get("authentication_status"):
+    st.title("Manage Coaches")
     authenticator.logout(location='sidebar')
     st.sidebar.write(f'Welcome *{st.session_state["name"]}*')
 
@@ -24,8 +25,6 @@ if st.session_state.get("authentication_status"):
     else:
         st.error ("Error: No username found in session state.")
         st.stop()
-
-    st.title("Manage Coaches")
 
     st.subheader("Your current coaches")
     if current_user:

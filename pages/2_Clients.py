@@ -14,6 +14,7 @@ render_login_and_registration(authenticator, config, db)
 
 # Check authentication status from session state
 if st.session_state.get("authentication_status"):
+    st.title("Manage Clients")
     authenticator.logout(location='sidebar')
     st.sidebar.write(f'Welcome *{st.session_state["name"]}*')
 
@@ -25,8 +26,6 @@ if st.session_state.get("authentication_status"):
         st.error ("Error: No username found in session state.")
         st.stop()
     role = current_user.get("role", "client") if current_user else "client"
-
-    st.title("Manage Clients")
 
     if role != "coach":
         st.info("This page is for coaches to find and request clients.\n If you'd like to become a coach, please contact the administrator (bradleynaylon@yahoo.com).")
