@@ -19,6 +19,20 @@ if st.session_state.get("authentication_status"):
     
     # Initialize database
     db = TrainerDB()
+    current_username = st.session_state.get("username")
+    if current_username:
+        current_user = db.get_user_by_username(current_username)
+    else:
+        st.error ("Error: No username found in session state.")
+        st.stop()
+    if current_user:
+        role = current_user.get("role", "client") if current_user else "client"
+        if role != "coach":
+            st.error("Error: Only coaches can access this page.")
+            st.stop()
+    else:
+        st.error("Error: Current user data not found.")
+        st.stop()
     
     def get_exercises():
         exercises = list(db.db.exercises.find())
