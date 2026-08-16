@@ -28,7 +28,7 @@ if st.session_state.get("authentication_status"):
     if current_user:
         role = current_user.get("role", "client") if current_user else "client"
         if role != "coach":
-            st.error("Error: Only coaches can access this page.")
+            st.info("This page is for coaches to manage exercises. If you'd like to become a coach, please contact the administrator (bradleynaylon@yahoo.com).")
             st.stop()
     else:
         st.error("Error: Current user data not found.")
