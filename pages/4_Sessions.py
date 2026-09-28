@@ -60,6 +60,84 @@ def coerce_int(value):
     return int(value)
 
 
+def build_session_text(session):
+    lines = [session.get("name", "Untitled Session")]
+    for superset_idx, superset in enumerate(session.get("supersets", [])):
+        exercises = superset.get("exercises", [])
+        repeat_count = max(
+            int(superset.get("repeats", 1)),
+            max((len(exercise.get("instances", [])) for exercise in exercises), default=1),
+        )
+        lines.append(f"\nSuperset {superset_idx + 1} ({repeat_count} round(s)):")
+        for exercise in exercises:
+            exercise_name = exercise.get("name", "Untitled")
+            metrics = exercise.get("metrics", [])
+            instances = exercise.get("instances", [])
+            lines.append(f"  {exercise_name}")
+            for repeat_idx in range(repeat_count):
+                instance = instances[repeat_idx] if repeat_idx < len(instances) else {"metrics": {}}
+                instance_metrics = instance.get("metrics", {})
+                if metrics:
+                    values = ", ".join(f"{metric}: {instance_metrics.get(metric, 0)}" for metric in metrics)
+                else:
+                    values = "no metrics configured"
+                lines.append(f"    Round {repeat_idx + 1}: {values}")
+    return "\n".join(lines)
+
+
+def render_copy_to_clipboard_button(session_id, text):
+    import json
+
+    escaped_text = json.dumps(text)
+    button_id = f"copy_btn_{session_id}"
+    components.html(
+        f"""
+        <div style="width:100%;">
+            <button id="{button_id}" style="
+                width:100%;
+                padding:0.5rem 1rem;
+                border-radius:0.5rem;
+                border:1px solid rgba(49,51,63,0.2);
+                background-color:#f0f2f6;
+                color:#31333f;
+                font-family:'Source Sans Pro',sans-serif;
+                font-size:1rem;
+                cursor:pointer;
+            ">Copy to Clipboard</button>
+            <script>
+                const btn = document.getElementById("{button_id}");
+                const text = {escaped_text};
+                btn.addEventListener("click", async () => {{
+                    let copied = false;
+                    try {{
+                        await navigator.clipboard.writeText(text);
+                        copied = true;
+                    }} catch (err) {{
+                        try {{
+                            const textarea = document.createElement("textarea");
+                            textarea.value = text;
+                            textarea.style.position = "fixed";
+                            textarea.style.opacity = "0";
+                            document.body.appendChild(textarea);
+                            textarea.focus();
+                            textarea.select();
+                            copied = document.execCommand("copy");
+                            document.body.removeChild(textarea);
+                        }} catch (fallbackErr) {{
+                            copied = false;
+                        }}
+                    }}
+                    const originalText = btn.textContent;
+                    btn.textContent = copied ? "Copied!" : "Copy failed";
+                    setTimeout(() => {{ btn.textContent = originalText; }}, 1500);
+                }});
+            </script>
+        </div>
+        """,
+        height=45,
+    )
+
+
 # Check authentication status from session state
 if st.session_state.get("authentication_status"):
     authenticator.logout(location='sidebar')
@@ -292,6 +370,8 @@ if st.session_state.get("authentication_status"):
                         if st.button("Delete Session", key=f"delete_{session_id}", use_container_width=True):
                             st.session_state[f"delete_confirm_{session_id}"] = True
                             st.rerun(scope="fragment")
+
+                render_copy_to_clipboard_button(session_id, build_session_text(session))
 
             show_videos = st.session_state.get(f"show_videos_toggle_{session_id}", False)
             if not edit_mode:
