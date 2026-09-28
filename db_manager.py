@@ -130,3 +130,32 @@ class TrainerDB:
     
     def get_all_sessions(self) -> List[Dict]:
         return list(self.db.sessions.find())
+
+    # Workout log methods (one document per completed/saved workout)
+    def add_workout_log(self, session: Dict, supersets: List[Dict], logged_by: str) -> str:
+        result = self.db.workout_logs.insert_one({
+            "session_id": str(session.get("_id")),
+            "session_name": session.get("name", ""),
+            "user_id": session.get("user_id"),
+            "logged_by": logged_by,
+            "created_at": datetime.now(),
+            "supersets": supersets,
+        })
+        return str(result.inserted_id)
+
+    def get_workout_logs_by_session(self, session_id: str) -> List[Dict]:
+        return list(self.db.workout_logs.find({"session_id": session_id}).sort("created_at", -1))
+
+    def get_latest_exercise_log(self, user_id: str, exercise_name: str) -> Optional[Dict]:
+        """Most recent logged instances of an exercise for a user: {"created_at", "instances"}."""
+        log = self.db.workout_logs.find_one(
+            {"user_id": user_id, "supersets.exercises.name": exercise_name},
+            sort=[("created_at", -1)],
+        )
+        if not log:
+            return None
+        for superset in log.get("supersets", []):
+            for exercise in superset.get("exercises", []):
+                if exercise.get("name") == exercise_name:
+                    return {"created_at": log.get("created_at"), "instances": exercise.get("instances", [])}
+        return None

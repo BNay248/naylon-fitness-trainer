@@ -85,6 +85,20 @@ def build_session_text(session):
     return "\n".join(lines)
 
 
+def build_log_text(log):
+    lines = []
+    for superset_idx, superset in enumerate(log.get("supersets", [])):
+        lines.append(f"Superset {superset_idx + 1}")
+        for exercise in superset.get("exercises", []):
+            metrics = exercise.get("metrics", [])
+            lines.append(f"  {exercise.get('name', 'Untitled')}")
+            for round_idx, instance in enumerate(exercise.get("instances", [])):
+                instance_metrics = instance.get("metrics", {})
+                values = ", ".join(f"{metric}: {instance_metrics.get(metric, 0)}" for metric in metrics) or "no metrics"
+                lines.append(f"    Round {round_idx + 1}: {values}")
+    return "\n".join(lines)
+
+
 def get_streamlit_button_theme():
     base = (st.get_option("theme.base") or "light").lower()
     primary_color = st.get_option("theme.primaryColor") or "#ff4b4b"
@@ -188,21 +202,14 @@ if st.session_state.get("authentication_status"):
         sessions = list(db.db.sessions.find({"user_id": username}))
         return sorted(sessions, key=lambda item: str(item.get("name", "")).lower())
 
-    def get_previous_metrics(exercise_name, metrics, sessions):
-        previous_values = {}
-        for session in reversed(sessions):
-            for superset in session.get("supersets", []):
-                for exercise in superset.get("exercises", []):
-                    if exercise.get("name") != exercise_name:
-                        continue
-                    for instance in exercise.get("instances", []):
-                        for metric in metrics:
-                            metric_value = instance.get("metrics", {}).get(metric)
-                            if metric_value not in [None, "", 0]:
-                                previous_values[metric] = metric_value
-                        if len(previous_values) >= len(metrics):
-                            return previous_values
-        return previous_values
+    def get_previous_metrics(user_id, exercise_name, metrics, round_idx):
+        """Values from the athlete's most recent logged workout containing this exercise, matched by round."""
+        latest = db.get_latest_exercise_log(user_id, exercise_name)
+        if not latest or not latest["instances"]:
+            return {}
+        instances = latest["instances"]
+        instance_metrics = instances[min(round_idx, len(instances) - 1)].get("metrics", {})
+        return {metric: instance_metrics[metric] for metric in metrics if instance_metrics.get(metric) not in [None, "", 0]}
 
     def build_session_document(session_name, supersets, assigned_to=None):
         target_user_id = assigned_to or username
@@ -338,7 +345,7 @@ if st.session_state.get("authentication_status"):
                     for exercise_idx, exercise in enumerate(exercises):
                         exercise_name = exercise.get("name", "Untitled")
                         metrics = exercise.get("metrics", [])
-                        previous_metrics = get_previous_metrics(exercise_name, metrics, get_user_sessions())
+                        previous_metrics = get_previous_metrics(session.get("user_id"), exercise_name, metrics, repeat_idx)
                         st.markdown(f"**{exercise_name}**")
                         if previous_metrics:
                             previous_text = ", ".join([f"{metric}: {previous_metrics[metric]}" for metric in metrics if metric in previous_metrics])
@@ -544,9 +551,22 @@ if st.session_state.get("authentication_status"):
                             "exercises": updated_exercises,
                         })
                     db.db.sessions.update_one({"_id": session.get("_id")}, {"$set": {"supersets": updated_supersets}})
+                    db.add_workout_log(session, updated_supersets, username)
                     st.success("Session saved")
                     sleep(.75)
                     st.rerun(scope="app")
+
+                logs = db.get_workout_logs_by_session(session_id)
+                with st.expander(f"History ({len(logs)})", expanded=False):
+                    if not logs:
+                        st.caption("No workouts logged yet. Press Save Session after a workout to record it.")
+                    for log in logs:
+                        logged_at = log.get("created_at")
+                        heading = logged_at.strftime("%a %b %d, %Y %I:%M %p") if isinstance(logged_at, datetime) else "Unknown date"
+                        if log.get("logged_by") and log.get("logged_by") != log.get("user_id"):
+                            heading += f" (logged by {log.get('logged_by')})"
+                        st.markdown(f"**{heading}**")
+                        st.text(build_log_text(log))
 
     st.title("Training Sessions")
     st.info("Build your weekly workout flow with supersets and repeat-based exercise rounds.")
