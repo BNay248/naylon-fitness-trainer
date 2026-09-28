@@ -85,28 +85,60 @@ def build_session_text(session):
     return "\n".join(lines)
 
 
+def get_streamlit_button_theme():
+    base = (st.get_option("theme.base") or "light").lower()
+    primary_color = st.get_option("theme.primaryColor") or "#ff4b4b"
+    background_color = st.get_option("theme.backgroundColor")
+    text_color = st.get_option("theme.textColor")
+    if base == "dark":
+        background_color = background_color or "#0e1117"
+        text_color = text_color or "#fafafa"
+        border_color = "rgba(250, 250, 250, 0.2)"
+    else:
+        background_color = background_color or "#ffffff"
+        text_color = text_color or "#31333f"
+        border_color = "rgba(49, 51, 63, 0.2)"
+    return background_color, text_color, border_color, primary_color
+
+
 def render_copy_to_clipboard_button(session_id, text):
     import json
 
     escaped_text = json.dumps(text)
     button_id = f"copy_btn_{session_id}"
+    background_color, text_color, border_color, primary_color = get_streamlit_button_theme()
     components.html(
         f"""
-        <div style="width:100%;">
+        <div style="width:100%; font-family:'Source Sans Pro', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;">
             <button id="{button_id}" style="
                 width:100%;
-                padding:0.5rem 1rem;
+                min-height:2.5rem;
+                padding:0.25rem 0.75rem;
                 border-radius:0.5rem;
-                border:1px solid rgba(49,51,63,0.2);
-                background-color:#f0f2f6;
-                color:#31333f;
-                font-family:'Source Sans Pro',sans-serif;
+                border:1px solid {border_color};
+                background-color:{background_color};
+                color:{text_color};
+                font-family:inherit;
                 font-size:1rem;
+                font-weight:400;
+                line-height:1.6;
                 cursor:pointer;
+                transition:color 0.2s, border-color 0.2s;
             ">Copy to Clipboard</button>
             <script>
                 const btn = document.getElementById("{button_id}");
                 const text = {escaped_text};
+                const primaryColor = "{primary_color}";
+                const defaultBorder = "{border_color}";
+                const defaultColor = "{text_color}";
+                btn.addEventListener("mouseenter", () => {{
+                    btn.style.borderColor = primaryColor;
+                    btn.style.color = primaryColor;
+                }});
+                btn.addEventListener("mouseleave", () => {{
+                    btn.style.borderColor = defaultBorder;
+                    btn.style.color = defaultColor;
+                }});
                 btn.addEventListener("click", async () => {{
                     let copied = false;
                     try {{
@@ -134,7 +166,7 @@ def render_copy_to_clipboard_button(session_id, text):
             </script>
         </div>
         """,
-        height=45,
+        height=48,
     )
 
 
