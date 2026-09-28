@@ -6,12 +6,38 @@ const blankExercise = () => ({ exercise_id: '', name: '', metrics: [], instances
 const blankSuperset = () => ({ repeats: 1, exercises: [blankExercise()] });
 
 function roundCount(superset) {
-  return Math.max(1, Number(superset.repeats) || 1);
+  return Math.min(MAX_REPEATS, Math.max(1, Number(superset.repeats) || 1));
 }
 
 function toCount(value) {
   const number = Math.floor(Number(value));
   return Number.isFinite(number) && number > 0 ? number : 0;
+}
+
+// Same comparison the server uses to decide whether a logged workout still fits the session.
+function structureKey(supersets) {
+  return JSON.stringify(supersets.map(superset => [roundCount(superset), superset.exercises.map(exercise => exercise.name)]));
+}
+
+// Client-side mirror of the server's clean_structure, used to show queued creates/edits before they sync.
+function normalizeStructure(supersets, catalog) {
+  return supersets.map(superset => {
+    const rounds = roundCount(superset);
+    const exercises = superset.exercises.map(raw => {
+      const exercise = catalog.byId[raw.exercise_id] || catalog.byName[raw.name];
+      if (!exercise) return null;
+      return {
+        exercise_id: exercise.id,
+        name: exercise.name,
+        metrics: exercise.metrics,
+        instances: Array.from({ length: rounds }, (_, round) => {
+          const values = (raw.instances || [])[round]?.metrics || {};
+          return { metrics: Object.fromEntries(exercise.metrics.filter(metric => metric in values).map(metric => [metric, toCount(values[metric])])) };
+        }),
+      };
+    }).filter(Boolean);
+    return { repeats: rounds, exercises };
+  }).filter(superset => superset.exercises.length);
 }
 
 function youtubeEmbed(value) {
@@ -92,6 +118,13 @@ function numberStepper(value, onChange, { min = 0, max = Infinity } = {}) {
   );
 }
 
+// Tracks which <details> are open (by key) so re-renders from background sync don't collapse anything.
+function trackedDetails(key, openKeys, props, ...children) {
+  const node = el('details', { ...props, open: openKeys.has(key) }, ...children);
+  node.addEventListener('toggle', () => { node.open ? openKeys.add(key) : openKeys.delete(key); });
+  return node;
+}
+
 // ---------- Builder (create + edit structure) ----------
 
 // Returns a node that edits a copy of `initial` and hands the cleaned result to onSave({name, supersets, assigned_to}).
@@ -101,7 +134,7 @@ function sessionBuilder({ catalog, initial, saveLabel, onSave, onCancel, clients
     assignedTo: '',
     supersets: initial ? clone(initial.supersets) : [blankSuperset()],
   };
-  const root = el('div', {});
+  const root = el('div', { class: 'builder' });
 
   function exerciseSelect(exercise) {
     const select = el('select', {
@@ -197,19 +230,27 @@ function workoutDraft(session) {
   }));
 }
 
-function sessionCard(session, { catalog, onChanged, logWorkout }) {
-  const card = el('details', { class: 'card', dataset: { sessionId: session.id } });
+// actions: {log(session, supersets), update(session, {name, supersets}), remove(session)}
+// drafts:  {get(id), set(id, supersets), clear(id)} — unsaved workout values, kept across reloads.
+// openKeys: Set of expanded section keys, shared across re-renders.
+function sessionCard(session, { catalog, actions, drafts, openKeys, historyPending = 0 }) {
   const body = el('div', {});
   let mode = 'log';
   let showVideos = false;
   let confirmingDelete = false;
+  const unsynced = session.pending || historyPending > 0;
 
-  card.append(
-    el('summary', {}, el('span', {}, session.name), el('span', { class: 'tag' }, `${session.supersets.length} superset(s)`)),
+  const card = trackedDetails(session.id, openKeys, { class: 'card', dataset: { sessionId: session.id } },
+    el('summary', {},
+      el('span', {}, session.name),
+      el('span', { class: 'tag' }, `${session.supersets.length} superset(s)`),
+      unsynced && el('span', { class: 'tag pending' }, 'Not synced')),
     body,
   );
   // Build the body lazily so long lists stay fast.
-  card.addEventListener('toggle', () => { if (card.open && !body.childElementCount) render(); });
+  const ensureBody = () => { if (card.open && !body.childElementCount) render(); };
+  card.addEventListener('toggle', ensureBody);
+  ensureBody();
 
   function render() {
     if (mode === 'edit') {
@@ -218,26 +259,18 @@ function sessionCard(session, { catalog, onChanged, logWorkout }) {
         initial: session,
         saveLabel: 'Save Changes',
         onCancel: () => { mode = 'log'; render(); },
-        onSave: async data => {
-          await api('PUT', `/api/sessions/${session.id}`, { name: data.name, supersets: data.supersets });
-          toast('Session updated');
-          await onChanged();
-        },
+        onSave: data => actions.update(session, { name: data.name, supersets: data.supersets }),
       }));
     }
-    mount(body, actions(), logView(), historySection());
+    mount(body, toolbar(), logView(), historySection());
   }
 
-  function actions() {
+  function toolbar() {
     if (confirmingDelete) {
       return el('div', { class: 'confirm' },
         el('div', {}, 'Delete this session? Its workout history is kept.'),
         el('div', { class: 'buttons' },
-          el('button', { class: 'danger', onclick: e => withBusy(e.currentTarget, async () => {
-            await api('DELETE', `/api/sessions/${session.id}`);
-            toast('Session deleted');
-            await onChanged();
-          }) }, 'Yes, delete'),
+          el('button', { class: 'danger', onclick: e => withBusy(e.currentTarget, () => actions.remove(session)) }, 'Yes, delete'),
           el('button', { onclick: () => { confirmingDelete = false; render(); } }, 'Cancel'),
         ),
       );
@@ -260,30 +293,24 @@ function sessionCard(session, { catalog, onChanged, logWorkout }) {
   }
 
   function logView() {
-    const draft = workoutDraft(session);
-    const saveButton = el('button', { class: 'primary', onclick: () => withBusy(saveButton, async () => {
-      await logWorkout(session, draft);
-      // Newly logged values become both the saved values and the "previous" for next time.
-      session.supersets = clone(draft);
-      draft.forEach(superset => superset.exercises.forEach(exercise => {
-        session.previous[exercise.name] = { created_at: new Date().toISOString(), instances: clone(exercise.instances) };
-      }));
-      render();
-    }) }, 'Save Session');
+    // Resume an unsaved draft only if the session layout hasn't changed underneath it.
+    const stored = drafts.get(session.id);
+    const draft = stored && structureKey(stored) === structureKey(session.supersets) ? stored : workoutDraft(session);
+    const saveButton = el('button', { class: 'primary', onclick: () => withBusy(saveButton, () => actions.log(session, clone(draft))) }, 'Save Session');
 
     return el('div', {},
-      draft.map((superset, supersetIdx) => el('details', { class: 'card' },
+      draft.map((superset, supersetIdx) => trackedDetails(`${session.id}:superset:${supersetIdx}`, openKeys, { class: 'card' },
         el('summary', {}, `Superset ${supersetIdx + 1} • ${superset.repeats} round(s)`),
         Array.from({ length: superset.repeats }, (_, round) => el('div', {},
           el('div', { class: 'round-title' }, `Round ${round + 1}`),
-          superset.exercises.map(exercise => exerciseLogRow(exercise, round)),
+          superset.exercises.map(exercise => exerciseLogRow(exercise, round, () => drafts.set(session.id, draft))),
         )),
       )),
       el('div', { class: 'buttons' }, saveButton),
     );
   }
 
-  function exerciseLogRow(exercise, round) {
+  function exerciseLogRow(exercise, round, onEdit) {
     const previous = previousValues(session, exercise, round);
     const previousText = exercise.metrics.filter(metric => metric in previous).map(metric => `${metric}: ${previous[metric]}`).join(', ');
     const video = showVideos && exerciseVideo(exercise, catalog);
@@ -295,7 +322,7 @@ function sessionCard(session, { catalog, onChanged, logWorkout }) {
       exercise.metrics.length
         ? el('div', { class: 'metric-grid' }, exercise.metrics.map(metric => el('div', {},
           el('label', {}, metric),
-          numberStepper(values[metric], value => { values[metric] = value; }),
+          numberStepper(values[metric], value => { values[metric] = value; onEdit(); }),
         )))
         : el('div', { class: 'muted' }, 'No metrics configured for this exercise'),
     );
@@ -303,22 +330,26 @@ function sessionCard(session, { catalog, onChanged, logWorkout }) {
 
   function historySection() {
     const list = el('div', {}, el('div', { class: 'muted' }, 'Loading…'));
-    const section = el('details', { class: 'card' }, el('summary', {}, 'History'), list);
-    section.addEventListener('toggle', async () => {
+    const section = trackedDetails(`${session.id}:history`, openKeys, { class: 'card' }, el('summary', {}, 'History'), list);
+    const load = async () => {
       if (!section.open) return;
+      const waiting = historyPending > 0 && el('p', { class: 'muted' }, `${historyPending} workout(s) waiting to sync.`);
+      if (session.id.startsWith('local-')) return mount(list, waiting || el('p', { class: 'muted' }, 'Not synced yet.'));
       try {
         const logs = await api('GET', `/api/sessions/${session.id}/history`);
-        mount(list, logs.length
+        mount(list, waiting, logs.length
           ? logs.map(log => el('div', { class: 'history-entry' },
             el('strong', {}, formatDate(log.created_at)),
             log.logged_by && log.logged_by !== log.user_id && el('span', { class: 'muted' }, ` (logged by ${log.logged_by})`),
             el('pre', {}, logText(log)),
           ))
-          : el('div', { class: 'muted' }, 'No workouts logged yet. Press Save Session after a workout to record it.'));
+          : !waiting && el('div', { class: 'muted' }, 'No workouts logged yet. Press Save Session after a workout to record it.'));
       } catch (err) {
-        mount(list, el('div', { class: 'error' }, err.message));
+        mount(list, waiting, el('div', { class: 'muted' }, err.status === 0 ? 'History is unavailable offline.' : err.message));
       }
-    });
+    };
+    section.addEventListener('toggle', load);
+    load();
     return section;
   }
 

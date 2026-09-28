@@ -48,6 +48,7 @@ details.card details.card { background: var(--bg); }
 .list-row { display: flex; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--border-soft); }
 .list-row:last-child { border-bottom: none; }
 .list-row .grow { flex: 1; min-width: 0; }
+.tag.pending { color: var(--warn); border-color: var(--warn); }
 .tag { font-size: 11px; padding: 2px 8px; border-radius: 10px; background: var(--input); border: 1px solid var(--border); color: var(--muted); font-weight: 400; }
 
 /* NAV */

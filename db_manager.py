@@ -20,6 +20,7 @@ class TrainerDB:
         self.db.workout_logs.create_index([("session_id", ASCENDING), ("created_at", DESCENDING)])
         self.db.workout_logs.create_index([("user_id", ASCENDING), ("created_at", DESCENDING)])
         self.db.workout_logs.create_index("client_id", sparse=True)
+        self.db.sessions.create_index("client_id", sparse=True)
 
     # Exercise methods
     def add_exercise(self, exercise_data: Dict) -> str:
@@ -106,6 +107,9 @@ class TrainerDB:
     def get_session(self, session_id: str) -> Optional[Dict]:
         oid = to_object_id(session_id)
         return self.db.sessions.find_one({"_id": oid}) if oid else None
+
+    def get_session_by_client_id(self, client_id: str) -> Optional[Dict]:
+        return self.db.sessions.find_one({"client_id": client_id})
 
     def get_sessions_for_users(self, usernames: List[str]) -> List[Dict]:
         sessions = self.db.sessions.find({"user_id": {"$in": list(usernames)}})

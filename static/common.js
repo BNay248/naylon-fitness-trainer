@@ -101,7 +101,18 @@ function renderNav(active) {
 }
 
 async function logout() {
-  try { await fetch('/api/logout', { method: 'POST' }); } catch {}
+  const prefix = `trainer:${ME.username}:`;
+  let unsynced = 0;
+  try { unsynced = (JSON.parse(localStorage.getItem(`${prefix}queue`)) || []).length; } catch {}
+  if (unsynced && !confirm(`You have ${unsynced} change(s) that haven't synced yet. Logging out will discard them. Log out anyway?`)) return;
+  try {
+    await fetch('/api/logout', { method: 'POST' });
+  } catch {
+    return toast("Can't log out while offline", 'error');
+  }
+  try {
+    Object.keys(localStorage).filter(key => key.startsWith(prefix) || key === 'trainer:me').forEach(key => localStorage.removeItem(key));
+  } catch {}
   showLogin();
 }
 
@@ -165,14 +176,23 @@ function showLogin() {
   mount(document.querySelector('.container'), form);
 }
 
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(() => {}));
+}
+
 // Entry point for each page: checks the login cookie, draws the nav, then calls render(main).
 async function boot(active, render, { coachOnly = false, adminOnly = false } = {}) {
   const container = document.querySelector('.container');
   try {
     ME = await api('GET', '/api/me');
+    try { localStorage.setItem('trainer:me', JSON.stringify(ME)); } catch {}
   } catch (err) {
-    if (err.status !== 401) mount(container, el('div', { class: 'info' }, err.message));
-    return;
+    // Offline: carry on as the last signed-in user so cached sessions still open.
+    try { ME = err.status === 0 ? JSON.parse(localStorage.getItem('trainer:me')) : null; } catch {}
+    if (!ME) {
+      if (err.status !== 401) mount(container, el('div', { class: 'info' }, err.status === 0 ? "You're offline. Connect once to sign in on this device." : err.message));
+      return;
+    }
   }
   const main = el('main', {});
   mount(container, renderNav(active), main);

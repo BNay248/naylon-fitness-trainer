@@ -5,73 +5,141 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Sessions · Naylon Fitness Portal</title>
 <link rel="icon" href="/static/NFP.jpg">
+<link rel="manifest" href="/static/manifest.json">
+<link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#0e1117">
 <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
 <div class="container"></div>
 <div id="toasts"></div>
+<div id="sync-status" class="status-banner"></div>
 <script src="/static/common.js"></script>
 <script src="/static/session-ui.js"></script>
+<script src="/static/offline.js"></script>
 <script>
+  let main = null;
+  let serverData = null;   // last /api/sessions response (cached for offline use)
   let catalog = makeCatalog([]);
-  let clients = [];
+  let offline = false;
+  let renderDeferred = false;
 
-  async function logWorkout(session, supersets) {
-    await api('POST', `/api/sessions/${session.id}/log`, { supersets, logged_at: new Date().toISOString() });
-    toast('Session saved');
+  // ---- Changes go through the offline queue, then sync ----
+
+  function queueChange(op, message) {
+    SyncQueue.push(op);
+    toast(message);
+    render();
+    sync();
   }
 
-  function openSessionIds() {
-    return new Set([...document.querySelectorAll('details[data-session-id][open]')].map(node => node.dataset.sessionId));
+  const actions = {
+    create: body => {
+      openKeys.delete('create');
+      queueChange({ kind: 'create', local_id: `local-${uuid()}`, body }, 'Session created');
+    },
+    update: (session, body) => queueChange({ kind: 'update', session_id: session.id, base_version: session.version, body }, 'Session updated'),
+    remove: session => {
+      if (session.id.startsWith('local-')) {
+        SyncQueue.dropLocalSession(session.id);
+        toast('Session deleted');
+        return render();
+      }
+      queueChange({ kind: 'delete', session_id: session.id, base_version: session.version }, 'Session deleted');
+    },
+    log: (session, supersets) => {
+      drafts.clear(session.id);
+      queueChange({ kind: 'log', session_id: session.id, body: {
+        supersets, logged_at: new Date().toISOString(), session_name: session.name, user_id: session.user_id,
+      } }, 'Session saved');
+    },
+  };
+
+  // ---- Loading ----
+
+  async function refresh() {
+    try {
+      const [exercises, data] = await Promise.all([api('GET', '/api/exercises'), api('GET', '/api/sessions')]);
+      store.set('exercises', exercises);
+      store.set('sessions', data);
+      serverData = data;
+      catalog = makeCatalog(exercises);
+      offline = false;
+    } catch (err) {
+      if (err.status !== 0) throw err;
+      offline = true;
+    }
   }
 
-  async function renderSessions(main) {
-    const reopen = openSessionIds();
-    const [exercises, data] = await Promise.all([api('GET', '/api/exercises'), api('GET', '/api/sessions')]);
-    catalog = makeCatalog(exercises);
-    clients = data.clients;
-    const onChanged = () => renderSessions(main).catch(err => toast(err.message, 'error'));
-    const card = session => sessionCard(session, { catalog, onChanged, logWorkout });
+  const snapshot = () => JSON.stringify([serverData, SyncQueue.load(), catalog.list.length]);
 
-    const createPanel = el('details', { class: 'card' },
-      el('summary', {}, 'Create New Session'),
-      el('p', { class: 'muted field' }, 'Build a session with supersets and repeated exercise rounds.'),
-      sessionBuilder({
-        catalog,
-        saveLabel: 'Create Session',
-        clients: ME.role === 'coach' ? clients : null,
-        onSave: async body => {
-          await api('POST', '/api/sessions', body);
-          toast('Session created');
-          await onChanged();
-        },
-      }),
-    );
+  async function sync() {
+    const before = snapshot();
+    try {
+      await flushQueue(message => toast(message, 'error'));
+      await refresh();
+    } catch (err) {
+      if (err.status !== 401) toast(err.message, 'error');
+    }
+    updateSyncBanner(offline);
+    if (snapshot() === before && serverData) return;
+    // Don't rebuild the page under someone who is mid-way through building/editing a session.
+    if (main.querySelector('details[open] .builder')) renderDeferred = true;
+    else render();
+  }
+
+  // ---- Rendering ----
+
+  function render() {
+    renderDeferred = false;
+    updateSyncBanner(offline);
+    if (!serverData) {
+      return mount(main, el('h1', {}, 'Training Sessions'),
+        el('div', { class: 'info' }, offline ? "You're offline and this device has no saved sessions yet." : 'Loading…'));
+    }
+    const { data, pendingLogs } = overlayQueue(serverData, SyncQueue.load(), catalog);
+    const card = session => sessionCard(session, { catalog, actions, drafts, openKeys, historyPending: pendingLogs[session.id] || 0 });
 
     mount(main,
       el('h1', {}, 'Training Sessions'),
       el('div', { class: 'info' }, 'Build your weekly workout flow with supersets and repeat-based exercise rounds.'),
-      createPanel,
+      trackedDetails('create', openKeys, { class: 'card' },
+        el('summary', {}, 'Create New Session'),
+        el('p', { class: 'muted field' }, 'Build a session with supersets and repeated exercise rounds.'),
+        sessionBuilder({ catalog, saveLabel: 'Create Session', clients: ME.role === 'coach' ? data.clients : null, onSave: actions.create }),
+      ),
       el('h2', {}, 'Your Sessions'),
       data.mine.length ? data.mine.map(card) : el('p', { class: 'muted' }, 'No sessions yet. Create your first one above.'),
       ME.role === 'coach' && [
         el('h2', {}, 'Client Sessions'),
-        clients.length ? clients.map(client => el('details', { class: 'card', id: `client-${client.username}`, dataset: { sessionId: `client-${client.username}` } },
+        data.clients.length ? data.clients.map(client => trackedDetails(`client-${client.username}`, openKeys, { class: 'card' },
           el('summary', {}, el('span', {}, `${client.name} (${client.username})`), el('span', { class: 'tag' }, `${client.sessions.length} session(s)`)),
           client.sessions.length ? client.sessions.map(card) : el('p', { class: 'muted' }, 'No sessions assigned to this client yet.'),
         )) : el('p', { class: 'muted' }, 'No clients yet.'),
       ],
     );
-
-    // Deep link from the Clients page: /#client-<username>
-    if (location.hash.startsWith('#client-')) reopen.add(location.hash.slice(1));
-    reopen.forEach(id => {
-      const node = main.querySelector(`details[data-session-id="${CSS.escape(id)}"]`);
-      if (node) node.open = true;
-    });
   }
 
-  boot('sessions', main => renderSessions(main).catch(err => mount(main, el('div', { class: 'error' }, err.message))));
+  boot('sessions', async container => {
+    main = container;
+    // Deep link from the Clients page: /#client-<username>
+    if (location.hash.startsWith('#client-')) openKeys.add(decodeURIComponent(location.hash.slice(1)));
+    // Show cached data (plus anything queued) instantly, then catch up with the server.
+    serverData = store.get('sessions', null);
+    catalog = makeCatalog(store.get('exercises', []));
+    render();
+    await sync();
+
+    window.addEventListener('online', sync);
+    window.addEventListener('offline', () => { offline = true; updateSyncBanner(offline); });
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') sync(); });
+    setInterval(() => {
+      if (renderDeferred && !main.querySelector('details[open] .builder')) render();
+      if (SyncQueue.load().length) sync();
+    }, 20000);
+  });
 </script>
 </body>
 </html>

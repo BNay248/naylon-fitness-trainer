@@ -194,6 +194,7 @@ def serialize_session(session: Dict, user: Dict, previous_cache: Dict) -> Dict:
         "coach_username": session.get("coach_username"),
         "created_at": iso(session.get("created_at")),
         "supersets": session.get("supersets", []),
+        "version": session.get("version", 0),
         "can_delete": owner == user["username"] or session.get("coach_username") == user["username"],
         "previous": previous,
     }
@@ -215,6 +216,11 @@ PAGES = {"/": "index.html", "/exercises": "exercises.html", "/clients": "clients
 
 for route, filename in PAGES.items():
     app.add_api_route(route, (lambda filename=filename: FileResponse(f"static/{filename}")), methods=["GET"], include_in_schema=False)
+
+
+@app.get("/sw.js", include_in_schema=False)
+def service_worker():
+    return FileResponse("static/sw.js", media_type="application/javascript")
 
 # ==================== AUTH ====================
 
@@ -336,12 +342,16 @@ class SessionRequest(BaseModel):
     name: str
     supersets: List[Dict]
     assigned_to: Optional[str] = None
+    client_id: Optional[str] = None
+    base_version: Optional[int] = None
 
 
 class LogRequest(BaseModel):
     supersets: List[Dict]
     client_id: Optional[str] = None
     logged_at: Optional[str] = None
+    session_name: Optional[str] = None
+    user_id: Optional[str] = None
 
 
 @app.get("/api/sessions")
@@ -358,40 +368,58 @@ def list_sessions(user: Dict = Depends(current_user)):
     }
 
 
-@app.post("/api/sessions")
-def create_session(req: SessionRequest, user: Dict = Depends(current_user)):
+def validated_structure(req: SessionRequest) -> Dict:
     name = req.name.strip()
     supersets = clean_structure(req.supersets)
     if not name:
         raise HTTPException(status_code=400, detail="Please enter a session name")
     if not supersets:
         raise HTTPException(status_code=400, detail="Please add at least one exercise")
-    document = {"name": name, "user_id": user["username"], "coach_username": user["username"], "supersets": supersets}
+    return {"name": name, "supersets": supersets}
+
+
+def check_coach_precedence(session: Dict, user: Dict, base_version: Optional[int]) -> None:
+    """Offline edits carry the version they started from. An athlete's stale edit loses to any coach edit made since."""
+    if base_version is None or user["username"] != session.get("user_id"):
+        return
+    if base_version < session.get("coach_edit_version", 0):
+        raise HTTPException(status_code=409, detail=f"Your coach changed \"{session.get('name')}\" while you were offline, so your change was discarded.")
+
+
+@app.post("/api/sessions")
+def create_session(req: SessionRequest, user: Dict = Depends(current_user)):
+    if req.client_id:
+        existing = db.get_session_by_client_id(req.client_id)
+        if existing:
+            return {"id": str(existing["_id"])}
+    document = {**validated_structure(req), "user_id": user["username"], "coach_username": user["username"],
+                "version": 0, "updated_by": user["username"], "client_id": req.client_id}
     if req.assigned_to:
         if user.get("role") != "coach" or req.assigned_to not in (user.get("clients") or []):
             raise HTTPException(status_code=400, detail="You can only assign sessions to your clients")
         document["user_id"] = document["assigned_to"] = req.assigned_to
+        document["coach_edit_version"] = 0
     return {"id": db.add_session(document)}
 
 
 @app.put("/api/sessions/{session_id}")
 def update_session(session_id: str, req: SessionRequest, user: Dict = Depends(current_user)):
-    get_accessible_session(session_id, user)
-    name = req.name.strip()
-    supersets = clean_structure(req.supersets)
-    if not name:
-        raise HTTPException(status_code=400, detail="Please enter a session name")
-    if not supersets:
-        raise HTTPException(status_code=400, detail="Please add at least one exercise")
-    db.update_session(session_id, {"name": name, "supersets": supersets})
-    return {"ok": True}
+    session = get_accessible_session(session_id, user)
+    check_coach_precedence(session, user, req.base_version)
+    version = session.get("version", 0) + 1
+    updates = {**validated_structure(req), "version": version, "updated_by": user["username"]}
+    if user["username"] != session.get("user_id"):
+        updates["coach_edit_version"] = version
+    db.update_session(session_id, updates)
+    return {"ok": True, "version": version}
 
 
 @app.delete("/api/sessions/{session_id}")
-def delete_session(session_id: str, user: Dict = Depends(current_user)):
+def delete_session(session_id: str, base_version: Optional[int] = None, user: Dict = Depends(current_user)):
     session = get_accessible_session(session_id, user)
     if session.get("user_id") != user["username"] and session.get("coach_username") != user["username"]:
         raise HTTPException(status_code=403, detail="Only the athlete or the coach who created it can delete this session")
+    check_coach_precedence(session, user, base_version)
     db.delete_session(session_id)
     return {"ok": True}
 
@@ -407,16 +435,27 @@ def parse_logged_at(value: Optional[str]) -> datetime:
 
 @app.post("/api/sessions/{session_id}/log")
 def log_workout(session_id: str, req: LogRequest, user: Dict = Depends(current_user)):
-    """Record a workout. The session keeps the latest values only if its structure still matches."""
-    session = get_accessible_session(session_id, user)
+    """Record a workout. The session keeps the latest values only if its structure still matches.
+
+    A workout synced after its session was deleted is still recorded, so offline work is never lost."""
     snapshot = clean_snapshot(req.supersets)
     if not any(superset["exercises"] for superset in snapshot):
         raise HTTPException(status_code=400, detail="Nothing to log")
+    session = db.get_session(session_id)
+    if session is None:
+        athlete = req.user_id or user["username"]
+        if athlete != user["username"] and athlete not in (user.get("clients") or []):
+            raise HTTPException(status_code=404, detail="Session not found")
+        orphan = {"_id": session_id, "name": req.session_name or "Deleted session", "user_id": athlete}
+        log_id = db.add_workout_log(orphan, snapshot, user["username"], req.client_id, parse_logged_at(req.logged_at))
+        return {"id": log_id, "session_updated": False, "session_deleted": True}
+    if not can_access_session(user, session):
+        raise HTTPException(status_code=404, detail="Session not found")
     structure_matches = structure_signature(snapshot) == structure_signature(session.get("supersets", []))
     if structure_matches:
         db.update_session(session_id, {"supersets": snapshot})
     log_id = db.add_workout_log(session, snapshot, user["username"], req.client_id, parse_logged_at(req.logged_at))
-    return {"id": log_id, "session_updated": structure_matches}
+    return {"id": log_id, "session_updated": structure_matches, "session_deleted": False}
 
 
 @app.get("/api/sessions/{session_id}/history")
