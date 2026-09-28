@@ -71,17 +71,17 @@ def build_session_text(session):
         lines.append(f"\nSuperset {superset_idx + 1} ({repeat_count} round(s)):")
         for exercise in exercises:
             exercise_name = exercise.get("name", "Untitled")
-            metrics = exercise.get("metrics", [])
-            instances = exercise.get("instances", [])
+            # metrics = exercise.get("metrics", [])
+            # instances = exercise.get("instances", [])
             lines.append(f"  {exercise_name}")
-            for repeat_idx in range(repeat_count):
-                instance = instances[repeat_idx] if repeat_idx < len(instances) else {"metrics": {}}
-                instance_metrics = instance.get("metrics", {})
-                if metrics:
-                    values = ", ".join(f"{metric}: {instance_metrics.get(metric, 0)}" for metric in metrics)
-                else:
-                    values = "no metrics configured"
-                lines.append(f"    Round {repeat_idx + 1}: {values}")
+            # for repeat_idx in range(repeat_count):
+            #     instance = instances[repeat_idx] if repeat_idx < len(instances) else {"metrics": {}}
+            #     instance_metrics = instance.get("metrics", {})
+            #     if metrics:
+            #         values = ", ".join(f"{metric}: {instance_metrics.get(metric, 0)}" for metric in metrics)
+            #     else:
+            #         values = "no metrics configured"
+            #     lines.append(f"    Round {repeat_idx + 1}: {values}")
     return "\n".join(lines)
 
 
