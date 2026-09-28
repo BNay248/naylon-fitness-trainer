@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Profile · Naylon Fitness Portal</title>
+<link rel="icon" href="/static/NFP.jpg">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="container"></div>
+<div id="toasts"></div>
+<script src="/static/common.js"></script>
+<script>
+  function render(main) {
+    const current = el('input', { type: 'password', autocomplete: 'current-password' });
+    const next = el('input', { type: 'password', autocomplete: 'new-password' });
+    const confirm = el('input', { type: 'password', autocomplete: 'new-password' });
+    const submit = el('button', { type: 'submit', class: 'primary' }, 'Update Password');
+
+    const form = el('form', { class: 'card', onsubmit: e => {
+      e.preventDefault();
+      if (next.value !== confirm.value) return toast("New passwords don't match", 'error');
+      if (next.value.length < 6) return toast('New password must be at least 6 characters', 'error');
+      withBusy(submit, async () => {
+        await api('POST', '/api/password', { current_password: current.value, new_password: next.value });
+        form.reset();
+        toast('Password updated successfully!');
+      });
+    } },
+      el('div', { class: 'field' }, el('label', {}, 'Current Password'), current),
+      el('div', { class: 'field' }, el('label', {}, 'New Password'), next),
+      el('div', { class: 'field' }, el('label', {}, 'Confirm New Password'), confirm),
+      submit,
+      el('p', { class: 'muted', style: 'margin-top:10px' }, 'Minimum 6 characters.'),
+    );
+
+    mount(main,
+      el('h1', {}, 'Profile'),
+      el('div', { class: 'card' },
+        el('div', { class: 'list-row' }, el('span', { class: 'grow muted' }, 'Name'), ME.name),
+        el('div', { class: 'list-row' }, el('span', { class: 'grow muted' }, 'Username'), ME.username),
+        el('div', { class: 'list-row' }, el('span', { class: 'grow muted' }, 'Email'), ME.email),
+        el('div', { class: 'list-row' }, el('span', { class: 'grow muted' }, 'Role'), ME.role === 'coach' ? 'Coach' : 'Client'),
+      ),
+      ME.role !== 'coach' && el('p', { class: 'muted field' }, COACH_CONTACT),
+      el('h2', {}, 'Change Password'),
+      form,
+    );
+  }
+
+  boot('profile', render);
+</script>
+</body>
+</html>

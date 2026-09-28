@@ -20,6 +20,8 @@ build/
 # Database files (if using local storage)
 *.db
 *.json
+!static/manifest.json
+.jwt_secret
 
 # IDE
 .vscode/

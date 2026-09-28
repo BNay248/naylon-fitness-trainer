@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Admin · Naylon Fitness Portal</title>
+<link rel="icon" href="/static/NFP.jpg">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="container"></div>
+<div id="toasts"></div>
+<script src="/static/common.js"></script>
+<script>
+  async function render(main) {
+    const users = await api('GET', '/api/admin/users');
+    const confirmingDelete = new Set();
+
+    const username = el('input', { type: 'text', autocomplete: 'off', autocapitalize: 'none' });
+    const name = el('input', { type: 'text', autocomplete: 'off' });
+    const email = el('input', { type: 'email', autocomplete: 'off' });
+    const password = el('input', { type: 'password', autocomplete: 'new-password' });
+    const coach = el('input', { type: 'checkbox' });
+    const submit = el('button', { type: 'submit', class: 'primary' }, 'Create User');
+    const form = el('form', { class: 'card', onsubmit: e => {
+      e.preventDefault();
+      const body = { username: username.value.trim(), name: name.value.trim(), email: email.value.trim(), password: password.value, coach: coach.checked };
+      if (!body.username || !body.name || !body.email || !body.password) return toast('Please fill all fields', 'error');
+      withBusy(submit, async () => {
+        const result = await api('POST', '/api/admin/users', body);
+        toast(`User created successfully as a ${result.role}.`);
+        await render(main);
+      });
+    } },
+      el('div', { class: 'field' }, el('label', {}, 'Username*'), username),
+      el('div', { class: 'field' }, el('label', {}, 'Full Name*'), name),
+      el('div', { class: 'field' }, el('label', {}, 'Email*'), email),
+      el('div', { class: 'field' }, el('label', {}, 'Password*'), password),
+      el('label', { class: 'check' }, coach, 'Create as coach'),
+      submit,
+    );
+
+    const list = el('div', { class: 'card' });
+    function drawList() {
+      mount(list, users.length ? users.map(user => el('div', { class: 'list-row' },
+        el('div', { class: 'grow' }, el('strong', {}, user.username), ' ', el('span', { class: 'tag' }, user.role), el('div', { class: 'muted' }, `${user.name} · ${user.email}`)),
+        confirmingDelete.has(user.username)
+          ? [
+            el('button', { class: 'small danger', onclick: e => withBusy(e.currentTarget, async () => {
+              await api('DELETE', `/api/admin/users/${encodeURIComponent(user.username)}`);
+              toast(`User '${user.username}' deleted.`);
+              await render(main);
+            }) }, 'Confirm delete'),
+            el('button', { class: 'small', onclick: () => { confirmingDelete.delete(user.username); drawList(); } }, 'Cancel'),
+          ]
+          : [
+            el('button', { class: 'small', onclick: e => withBusy(e.currentTarget, async () => {
+              const result = await api('POST', `/api/admin/users/${encodeURIComponent(user.username)}/toggle-coach`);
+              user.role = result.role;
+              toast(`Role updated for '${user.username}'.`);
+              drawList();
+            }) }, user.role === 'coach' ? 'Remove Coach' : 'Add Coach'),
+            user.username !== ME.username && el('button', { class: 'small danger', onclick: () => { confirmingDelete.add(user.username); drawList(); } }, 'Delete'),
+          ],
+      )) : el('p', { class: 'muted' }, 'No users found.'));
+    }
+    drawList();
+
+    mount(main, el('h1', {}, 'User Management'), el('h2', {}, 'Add New User'), form, el('h2', {}, 'Current Users'), list);
+  }
+
+  boot('admin', main => render(main).catch(err => mount(main, el('div', { class: 'error' }, err.message))), { adminOnly: true });
+</script>
+</body>
+</html>

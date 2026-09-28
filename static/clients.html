@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Clients · Naylon Fitness Portal</title>
+<link rel="icon" href="/static/NFP.jpg">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="container"></div>
+<div id="toasts"></div>
+<script src="/static/common.js"></script>
+<script>
+  async function render(main) {
+    const data = await api('GET', '/api/clients');
+    const refresh = () => render(main);
+    const act = (method, path, message) => e => withBusy(e.currentTarget, async () => {
+      await api(method, path);
+      toast(message);
+      await refresh();
+    });
+
+    const results = el('div', {});
+    const search = el('input', { type: 'search', placeholder: 'Search by username or name', oninput: () => drawResults() });
+    function drawResults() {
+      const query = search.value.trim().toLowerCase();
+      const matches = data.candidates.filter(user => !query || user.username.toLowerCase().includes(query) || user.name.toLowerCase().includes(query));
+      mount(results, matches.length
+        ? matches.map(user => el('div', { class: 'list-row' },
+          el('div', { class: 'grow' }, el('strong', {}, user.name || user.username), ` (${user.username})`),
+          el('button', { class: 'small', onclick: act('POST', `/api/clients/${encodeURIComponent(user.username)}/request`, `Request sent to ${user.username}.`) }, 'Request'),
+        ))
+        : el('p', { class: 'muted' }, 'No matching clients found.'));
+    }
+
+    mount(main,
+      el('h1', {}, 'Manage Clients'),
+      el('div', { class: 'info' }, 'Search for a client and send a request to connect.'),
+      el('div', { class: 'field' }, search),
+      el('div', { class: 'card' }, results),
+
+      el('h2', {}, 'Your current clients'),
+      data.clients.length
+        ? el('div', { class: 'card' }, data.clients.map(client => el('div', { class: 'list-row' },
+          el('div', { class: 'grow' }, el('strong', {}, client.name), ` (${client.username})`),
+          el('a', { class: 'btn', href: `/#client-${encodeURIComponent(client.username)}` }, 'Sessions'),
+          el('button', { class: 'small danger', onclick: act('DELETE', `/api/clients/${encodeURIComponent(client.username)}`, `${client.username} has been removed from your clients.`) }, 'Remove'),
+        )))
+        : el('p', { class: 'muted' }, 'No clients yet.'),
+
+      el('h2', {}, 'Pending requests sent'),
+      data.pending.length
+        ? el('div', { class: 'card' }, data.pending.map(client => el('div', { class: 'list-row' },
+          el('div', { class: 'grow' }, el('strong', {}, client.name), ` (${client.username})`),
+          el('button', { class: 'small', onclick: act('DELETE', `/api/clients/${encodeURIComponent(client.username)}/request`, `Request to ${client.username} has been canceled.`) }, 'Cancel Request'),
+        )))
+        : el('p', { class: 'muted' }, 'No pending requests.'),
+    );
+    drawResults();
+  }
+
+  boot('clients', main => render(main).catch(err => mount(main, el('div', { class: 'error' }, err.message))), { coachOnly: true });
+</script>
+</body>
+</html>

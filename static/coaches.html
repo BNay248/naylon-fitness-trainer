@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Coaches · Naylon Fitness Portal</title>
+<link rel="icon" href="/static/NFP.jpg">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="container"></div>
+<div id="toasts"></div>
+<script src="/static/common.js"></script>
+<script>
+  async function render(main) {
+    const data = await api('GET', '/api/coaches');
+    const act = (method, path, message) => e => withBusy(e.currentTarget, async () => {
+      await api(method, path);
+      toast(message);
+      await render(main);
+    });
+    const who = coach => [el('strong', {}, coach.name), ` (${coach.username})`];
+
+    mount(main,
+      el('h1', {}, 'Manage Coaches'),
+
+      el('h2', {}, 'Coach requests'),
+      data.requests.length
+        ? el('div', { class: 'card' }, data.requests.map(coach => el('div', { class: 'list-row' },
+          el('div', { class: 'grow' }, who(coach)),
+          el('button', { class: 'small primary', onclick: act('POST', `/api/coaches/${encodeURIComponent(coach.username)}/accept`, `You are now connected with ${coach.username}.`) }, 'Accept'),
+          el('button', { class: 'small', onclick: act('POST', `/api/coaches/${encodeURIComponent(coach.username)}/decline`, `Request from ${coach.username} declined.`) }, 'Decline'),
+        )))
+        : el('p', { class: 'muted' }, 'No coach requests right now.'),
+
+      el('h2', {}, 'Your current coaches'),
+      data.coaches.length
+        ? el('div', { class: 'card' }, data.coaches.map(coach => el('div', { class: 'list-row' },
+          el('div', { class: 'grow' }, who(coach)),
+          el('button', { class: 'small danger', onclick: act('DELETE', `/api/coaches/${encodeURIComponent(coach.username)}`, `${coach.username} has been removed from your coaches.`) }, 'Remove Coach'),
+        )))
+        : el('p', { class: 'muted' }, 'No coaches yet.'),
+    );
+  }
+
+  boot('coaches', main => render(main).catch(err => mount(main, el('div', { class: 'error' }, err.message))));
+</script>
+</body>
+</html>

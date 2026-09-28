@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Exercises · Naylon Fitness Portal</title>
+<link rel="icon" href="/static/NFP.jpg">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="container"></div>
+<div id="toasts"></div>
+<script src="/static/common.js"></script>
+<script>
+  const POSSIBLE_METRICS = ['Reps', 'Weight', 'Duration', 'Calories', 'Resistance', 'Distance'];
+
+  // Form fields for an exercise; returns {node, read()}.
+  function exerciseForm(exercise = {}) {
+    const name = el('input', { type: 'text', value: exercise.name || '' });
+    const instructions = el('textarea', {}, exercise.instructions || '');
+    const video = el('input', { type: 'url', value: exercise.video_url || '', placeholder: 'https://youtube.com/…' });
+    const selected = new Set(exercise.metrics || []);
+    const chips = el('div', { class: 'chips' }, POSSIBLE_METRICS.map(metric => el('span', {
+      class: `chip ${selected.has(metric) ? 'on' : ''}`,
+      onclick: e => {
+        selected.has(metric) ? selected.delete(metric) : selected.add(metric);
+        e.currentTarget.classList.toggle('on', selected.has(metric));
+      },
+    }, metric)));
+    return {
+      node: el('div', {},
+        el('div', { class: 'field' }, el('label', {}, 'Exercise Name*'), name),
+        el('div', { class: 'field' }, el('label', {}, 'Instructions*'), instructions),
+        el('div', { class: 'field' }, el('label', {}, 'Video URL (optional)'), video),
+        el('div', { class: 'field' }, el('label', {}, 'Metrics'), chips),
+      ),
+      read() {
+        const body = { name: name.value.trim(), instructions: instructions.value, video_url: video.value.trim(), metrics: POSSIBLE_METRICS.filter(m => selected.has(m)) };
+        if (!body.name || !body.instructions.trim()) throw new Error('Please fill in all required fields');
+        return body;
+      },
+      reset() {
+        name.value = instructions.value = video.value = '';
+        selected.clear();
+        chips.querySelectorAll('.chip').forEach(chip => chip.classList.remove('on'));
+      },
+    };
+  }
+
+  function formAction(button, form, request) {
+    return withBusy(button, async () => {
+      let body;
+      try { body = form.read(); } catch (err) { return toast(err.message, 'error'); }
+      await request(body);
+    });
+  }
+
+  async function render(main) {
+    const exercises = await api('GET', '/api/exercises');
+    const list = el('div', {});
+    const filter = el('input', { type: 'search', placeholder: `Filter ${exercises.length} exercises…`, oninput: () => applyFilter() });
+
+    function applyFilter() {
+      const query = filter.value.trim().toLowerCase();
+      list.querySelectorAll('details').forEach(node => node.classList.toggle('hidden', !!query && !node.dataset.name.includes(query)));
+    }
+
+    const create = exerciseForm();
+    mount(main,
+      el('h1', {}, 'Manage Exercises'),
+      el('details', { class: 'card' },
+        el('summary', {}, 'Add Exercise'),
+        create.node,
+        el('div', { class: 'buttons' }, el('button', { class: 'primary', onclick: e => formAction(e.currentTarget, create, async body => {
+          await api('POST', '/api/exercises', body);
+          toast('Exercise added successfully');
+          create.reset();
+          await render(main);
+        }) }, 'Add Exercise')),
+      ),
+      el('h2', {}, 'All Exercises'),
+      el('div', { class: 'field' }, filter),
+      list,
+    );
+
+    mount(list, exercises.map(exercise => {
+      const card = el('details', { class: 'card', dataset: { name: exercise.name.toLowerCase() } },
+        el('summary', {}, el('span', {}, exercise.name), exercise.metrics.length ? el('span', { class: 'tag' }, exercise.metrics.join(', ')) : null));
+      // Editors are built on first open; there are 100+ exercises.
+      card.addEventListener('toggle', () => {
+        if (!card.open || card.childElementCount > 1) return;
+        const form = exerciseForm(exercise);
+        let confirming = false;
+        const actions = el('div', {});
+        const drawActions = () => mount(actions, confirming
+          ? el('div', { class: 'confirm' }, `Delete "${exercise.name}"? Existing sessions keep their copy of it.`,
+            el('div', { class: 'buttons' },
+              el('button', { class: 'danger', onclick: e => withBusy(e.currentTarget, async () => {
+                await api('DELETE', `/api/exercises/${exercise.id}`);
+                toast('Exercise deleted');
+                card.remove();
+              }) }, 'Yes, delete'),
+              el('button', { onclick: () => { confirming = false; drawActions(); } }, 'Cancel')))
+          : el('div', { class: 'buttons' },
+            el('button', { class: 'primary', onclick: e => formAction(e.currentTarget, form, async body => {
+              await api('PUT', `/api/exercises/${exercise.id}`, body);
+              Object.assign(exercise, body);
+              card.dataset.name = body.name.toLowerCase();
+              card.querySelector('summary span').textContent = body.name;
+              toast('Exercise saved');
+            }) }, 'Save'),
+            el('button', { class: 'danger', onclick: () => { confirming = true; drawActions(); } }, 'Delete')));
+        drawActions();
+        card.append(form.node, actions);
+      });
+      return card;
+    }));
+    applyFilter();
+  }
+
+  boot('exercises', main => render(main).catch(err => mount(main, el('div', { class: 'error' }, err.message))), { coachOnly: true });
+</script>
+</body>
+</html>
