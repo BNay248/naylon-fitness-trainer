@@ -60,6 +60,15 @@ nav a.nav-link.active { color: var(--text); border-bottom: 2px solid var(--accen
 nav .spacer { flex: 1; }
 nav .who { font-size: 13px; color: var(--muted); }
 nav .logout { background: none; border: none; color: var(--muted); font-size: 13px; padding: 4px 0; }
+nav .nav-menu { display: contents; }
+nav .nav-toggle { display: none; margin-left: auto; padding: 6px 12px; font-size: 18px; line-height: 1; }
+@media (max-width: 640px) {
+  nav .nav-toggle { display: inline-flex; }
+  nav .nav-menu { display: none; flex-basis: 100%; flex-direction: column; align-items: flex-start; gap: 6px; padding-top: 8px; }
+  nav.open .nav-menu { display: flex; }
+  nav .spacer { display: none; }
+  nav .who { padding-top: 6px; border-top: 1px solid var(--border-soft); width: 100%; }
+}
 
 /* AUTH */
 .auth-box { max-width: 360px; margin: 60px auto; background: var(--panel); border-radius: 12px; padding: 24px; }

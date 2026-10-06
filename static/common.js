@@ -91,13 +91,21 @@ function renderNav(active) {
     ['profile', '/profile', 'Profile'],
     ME.is_admin && ['admin', '/admin', 'Admin'],
   ].filter(Boolean);
-  return el('nav', {},
+  // On narrow screens the links collapse behind the menu button instead of wrapping.
+  const toggle = el('button', { type: 'button', class: 'nav-toggle', 'aria-label': 'Menu', 'aria-expanded': 'false', onclick: () => {
+    toggle.setAttribute('aria-expanded', String(nav.classList.toggle('open')));
+  } }, '☰');
+  const nav = el('nav', {},
     el('a', { class: 'brand', href: '/' }, el('img', { src: '/static/NFP.jpg', alt: '' }), 'Naylon Fitness'),
-    links.map(([key, href, label]) => el('a', { class: `nav-link ${key === active ? 'active' : ''}`, href }, label)),
-    el('span', { class: 'spacer' }),
-    el('span', { class: 'who' }, ME.name || ME.username),
-    el('button', { class: 'logout', onclick: logout }, 'Logout'),
+    toggle,
+    el('div', { class: 'nav-menu' },
+      links.map(([key, href, label]) => el('a', { class: `nav-link ${key === active ? 'active' : ''}`, href }, label)),
+      el('span', { class: 'spacer' }),
+      el('span', { class: 'who' }, ME.name || ME.username),
+      el('button', { class: 'logout', onclick: logout }, 'Logout'),
+    ),
   );
+  return nav;
 }
 
 async function logout() {
