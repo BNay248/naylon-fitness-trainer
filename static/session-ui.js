@@ -301,30 +301,35 @@ function sessionCard(session, { catalog, actions, drafts, openKeys, historyPendi
     return el('div', {},
       draft.map((superset, supersetIdx) => trackedDetails(`${session.id}:superset:${supersetIdx}`, openKeys, { class: 'card' },
         el('summary', {}, `Superset ${supersetIdx + 1} • ${superset.repeats} round(s)`),
-        Array.from({ length: superset.repeats }, (_, round) => el('div', {},
-          el('div', { class: 'round-title' }, `Round ${round + 1}`),
-          superset.exercises.map(exercise => exerciseLogRow(exercise, round, () => drafts.set(session.id, draft))),
-        )),
+        superset.exercises.map(exercise => exerciseLog(exercise, superset.repeats, () => drafts.set(session.id, draft))),
       )),
       el('div', { class: 'buttons' }, saveButton),
     );
   }
 
-  function exerciseLogRow(exercise, round, onEdit) {
-    const previous = previousValues(session, exercise, round);
-    const previousText = exercise.metrics.filter(metric => metric in previous).map(metric => `${metric}: ${previous[metric]}`).join(', ');
+  // One block per exercise: name/video once, then a row of inputs for each round.
+  function exerciseLog(exercise, rounds, onEdit) {
     const video = showVideos && exerciseVideo(exercise, catalog);
-    const values = exercise.instances[round].metrics;
     return el('div', { class: 'exercise-log' },
       el('div', { class: 'name' }, exercise.name || 'Untitled'),
-      previousText && el('div', { class: 'muted' }, `Previous: ${previousText}`),
       video && el('div', { class: 'video' }, el('iframe', { src: video, allowfullscreen: true, loading: 'lazy', title: exercise.name })),
       exercise.metrics.length
-        ? el('div', { class: 'metric-grid' }, exercise.metrics.map(metric => el('div', {},
-          el('label', {}, metric),
-          numberStepper(values[metric], value => { values[metric] = value; onEdit(); }),
-        )))
+        ? Array.from({ length: rounds }, (_, round) => roundRow(exercise, round, onEdit))
         : el('div', { class: 'muted' }, 'No metrics configured for this exercise'),
+    );
+  }
+
+  function roundRow(exercise, round, onEdit) {
+    const previous = previousValues(session, exercise, round);
+    const previousText = exercise.metrics.filter(metric => metric in previous).map(metric => `${metric}: ${previous[metric]}`).join(', ');
+    const values = exercise.instances[round].metrics;
+    return el('div', { class: 'round-row' },
+      el('div', { class: 'round-title' }, `Round ${round + 1}`),
+      el('div', { class: 'metric-grid' }, exercise.metrics.map(metric => el('div', {},
+        el('label', {}, metric),
+        numberStepper(values[metric], value => { values[metric] = value; onEdit(); }),
+      ))),
+      previousText && el('div', { class: 'muted' }, `Previous: ${previousText}`),
     );
   }
 

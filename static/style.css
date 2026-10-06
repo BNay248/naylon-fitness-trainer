@@ -79,6 +79,8 @@ nav .logout { background: none; border: none; color: var(--muted); font-size: 13
 .exercise-log { padding: 8px 0; border-top: 1px solid var(--border-soft); }
 .exercise-log:first-of-type { border-top: none; }
 .exercise-log .name { font-weight: 600; }
+.round-row { margin-top: 10px; }
+.round-row .round-title { margin: 0 0 2px; }
 .metric-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(90px, 1fr)); gap: 8px; margin-top: 6px; }
 .metric-grid input { text-align: center; font-size: 17px; }
 .stepper { display: flex; }
