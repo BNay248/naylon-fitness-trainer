@@ -118,9 +118,9 @@ def clean_instances(instances: Any, metrics: List[str], rounds: int) -> List[Dic
     return cleaned
 
 
-def clean_structure(raw_supersets: Any) -> List[Dict]:
-    """Validate a session's superset/exercise structure against the exercise catalog."""
-    catalog = {str(item["_id"]): item for item in db.get_all_exercises()}
+def clean_structure(raw_supersets: Any, usernames: List[str]) -> List[Dict]:
+    """Validate a session's superset/exercise structure against the exercises those users can see."""
+    catalog = {str(item["_id"]): item for item in db.get_visible_exercises(usernames)}
     by_name = {item.get("name"): item for item in catalog.values()}
     supersets = []
     for raw in raw_supersets if isinstance(raw_supersets, list) else []:
@@ -207,6 +207,8 @@ def serialize_exercise(exercise: Dict) -> Dict:
         "instructions": exercise.get("instructions", ""),
         "video_url": exercise.get("video_url", ""),
         "metrics": exercise.get("metrics") or [],
+        "owner": exercise.get("owner"),
+        "pending": bool(exercise.get("pending")),
     }
 
 # ==================== PAGES ====================
@@ -312,27 +314,102 @@ def exercise_fields(req: ExerciseRequest) -> Dict:
     }
 
 
+def check_name_free(name: str, exercises: List[Dict], exclude_id: Optional[str] = None) -> None:
+    # Sessions and "previous values" match exercises by name, so names must not collide.
+    if any(str(item["_id"]) != exclude_id and str(item.get("name", "")).lower() == name.lower() for item in exercises):
+        raise HTTPException(status_code=409, detail=f"An exercise named \"{name}\" already exists")
+
+
+def get_editable_exercise(exercise_id: str, user: Dict) -> Dict:
+    """Coaches edit global exercises; everyone edits their own personal ones."""
+    exercise = db.get_exercise(exercise_id)
+    if not exercise or (exercise.get("owner") and exercise["owner"] != user["username"]):
+        raise HTTPException(status_code=404, detail="Exercise not found")
+    if not exercise.get("owner") and user.get("role") != "coach":
+        raise HTTPException(status_code=403, detail="Only coaches can change the global exercise list")
+    return exercise
+
+
+def get_own_exercise(exercise_id: str, user: Dict) -> Dict:
+    exercise = db.get_exercise(exercise_id)
+    if not exercise or exercise.get("owner") != user["username"]:
+        raise HTTPException(status_code=404, detail="Exercise not found")
+    return exercise
+
+
+def get_pending_exercise(exercise_id: str) -> Dict:
+    exercise = db.get_exercise(exercise_id)
+    if not exercise or not exercise.get("owner") or not exercise.get("pending"):
+        raise HTTPException(status_code=404, detail="Request not found")
+    return exercise
+
+
 @app.get("/api/exercises")
 def list_exercises(user: Dict = Depends(current_user)):
-    return [serialize_exercise(exercise) for exercise in db.get_all_exercises()]
+    return [serialize_exercise(exercise) for exercise in db.get_visible_exercises([user["username"]])]
 
 
 @app.post("/api/exercises")
-def create_exercise(req: ExerciseRequest, user: Dict = Depends(coach_user)):
-    return {"id": db.add_exercise(exercise_fields(req))}
+def create_exercise(req: ExerciseRequest, user: Dict = Depends(current_user)):
+    """Coaches add to the global list; everyone else adds a personal exercise only they can see."""
+    fields = exercise_fields(req)
+    check_name_free(fields["name"], db.get_visible_exercises([user["username"]]))
+    if user.get("role") != "coach":
+        fields["owner"] = user["username"]
+    return {"id": db.add_exercise(fields)}
 
 
 @app.put("/api/exercises/{exercise_id}")
-def update_exercise(exercise_id: str, req: ExerciseRequest, user: Dict = Depends(coach_user)):
-    if not db.update_exercise(exercise_id, exercise_fields(req)):
-        raise HTTPException(status_code=404, detail="Exercise not found")
+def update_exercise(exercise_id: str, req: ExerciseRequest, user: Dict = Depends(current_user)):
+    exercise = get_editable_exercise(exercise_id, user)
+    fields = exercise_fields(req)
+    others = db.get_visible_exercises([exercise["owner"]] if exercise.get("owner") else [])
+    check_name_free(fields["name"], others, exclude_id=exercise_id)
+    db.update_exercise(exercise_id, fields)
     return {"ok": True}
 
 
 @app.delete("/api/exercises/{exercise_id}")
-def delete_exercise(exercise_id: str, user: Dict = Depends(coach_user)):
-    if not db.delete_exercise(exercise_id):
-        raise HTTPException(status_code=404, detail="Exercise not found")
+def delete_exercise(exercise_id: str, user: Dict = Depends(current_user)):
+    get_editable_exercise(exercise_id, user)
+    db.delete_exercise(exercise_id)
+    return {"ok": True}
+
+
+@app.post("/api/exercises/{exercise_id}/request")
+def request_global_exercise(exercise_id: str, user: Dict = Depends(current_user)):
+    get_own_exercise(exercise_id, user)
+    db.update_exercise(exercise_id, {"pending": True})
+    return {"ok": True}
+
+
+@app.delete("/api/exercises/{exercise_id}/request")
+def cancel_global_request(exercise_id: str, user: Dict = Depends(current_user)):
+    get_own_exercise(exercise_id, user)
+    db.update_exercise(exercise_id, {"pending": False})
+    return {"ok": True}
+
+
+@app.get("/api/exercise-requests")
+def list_exercise_requests(user: Dict = Depends(coach_user)):
+    pending = db.get_pending_exercises()
+    names = {item["username"]: item["name"] for item in display_names(list({item["owner"] for item in pending}))}
+    return [{**serialize_exercise(item), "owner_name": names.get(item["owner"], item["owner"])} for item in pending]
+
+
+@app.post("/api/exercise-requests/{exercise_id}/approve")
+def approve_exercise_request(exercise_id: str, user: Dict = Depends(coach_user)):
+    """Moves the exercise into the global list. Its id is unchanged, so sessions already using it keep working."""
+    exercise = get_pending_exercise(exercise_id)
+    check_name_free(exercise.get("name", ""), db.get_visible_exercises([]), exclude_id=exercise_id)
+    db.make_exercise_global(exercise_id)
+    return {"ok": True}
+
+
+@app.post("/api/exercise-requests/{exercise_id}/decline")
+def decline_exercise_request(exercise_id: str, user: Dict = Depends(coach_user)):
+    get_pending_exercise(exercise_id)
+    db.update_exercise(exercise_id, {"pending": False})
     return {"ok": True}
 
 # ==================== SESSIONS ====================
@@ -368,9 +445,9 @@ def list_sessions(user: Dict = Depends(current_user)):
     }
 
 
-def validated_structure(req: SessionRequest) -> Dict:
+def validated_structure(req: SessionRequest, usernames: List[str]) -> Dict:
     name = req.name.strip()
-    supersets = clean_structure(req.supersets)
+    supersets = clean_structure(req.supersets, usernames)
     if not name:
         raise HTTPException(status_code=400, detail="Please enter a session name")
     if not supersets:
@@ -392,7 +469,8 @@ def create_session(req: SessionRequest, user: Dict = Depends(current_user)):
         existing = db.get_session_by_client_id(req.client_id)
         if existing:
             return {"id": str(existing["_id"])}
-    document = {**validated_structure(req), "user_id": user["username"], "coach_username": user["username"],
+    # The athlete's personal exercises are usable too, so a coach can build with them.
+    document = {**validated_structure(req, [user["username"], req.assigned_to or user["username"]]), "user_id": user["username"], "coach_username": user["username"],
                 "version": 0, "updated_by": user["username"], "client_id": req.client_id}
     if req.assigned_to:
         if user.get("role") != "coach" or req.assigned_to not in (user.get("clients") or []):
@@ -407,7 +485,7 @@ def update_session(session_id: str, req: SessionRequest, user: Dict = Depends(cu
     session = get_accessible_session(session_id, user)
     check_coach_precedence(session, user, req.base_version)
     version = session.get("version", 0) + 1
-    updates = {**validated_structure(req), "version": version, "updated_by": user["username"]}
+    updates = {**validated_structure(req, [user["username"], session.get("user_id")]), "version": version, "updated_by": user["username"]}
     if user["username"] != session.get("user_id"):
         updates["coach_edit_version"] = version
     db.update_session(session_id, updates)

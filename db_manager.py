@@ -34,6 +34,18 @@ class TrainerDB:
     def get_all_exercises(self) -> List[Dict]:
         return sorted(self.db.exercises.find(), key=lambda item: str(item.get("name", "")).lower())
 
+    def get_visible_exercises(self, usernames: List[str]) -> List[Dict]:
+        """Global exercises (no owner) plus the personal exercises of the given users."""
+        found = self.db.exercises.find({"owner": {"$in": [None, *usernames]}})
+        return sorted(found, key=lambda item: str(item.get("name", "")).lower())
+
+    def get_pending_exercises(self) -> List[Dict]:
+        return sorted(self.db.exercises.find({"pending": True}), key=lambda item: str(item.get("name", "")).lower())
+
+    def make_exercise_global(self, exercise_id: str) -> bool:
+        oid = to_object_id(exercise_id)
+        return bool(oid) and self.db.exercises.update_one({"_id": oid}, {"$unset": {"owner": "", "pending": ""}}).matched_count > 0
+
     def update_exercise(self, exercise_id: str, updates: Dict) -> bool:
         oid = to_object_id(exercise_id)
         return bool(oid) and self.db.exercises.update_one({"_id": oid}, {"$set": updates}).matched_count > 0

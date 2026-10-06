@@ -11,6 +11,7 @@
 <div class="container"></div>
 <div id="toasts"></div>
 <script src="/static/common.js"></script>
+<script src="/static/session-ui.js"></script>
 <script>
   const POSSIBLE_METRICS = ['Reps', 'Weight', 'Duration', 'Calories', 'Resistance', 'Distance'];
 
@@ -55,8 +56,47 @@
     });
   }
 
+  const isCoach = () => ME.role === 'coach';
+  // Coaches edit the global list; everyone edits their own personal exercises.
+  const canEdit = exercise => exercise.owner ? exercise.owner === ME.username : isCoach();
+
+  function exerciseDetails(exercise) {
+    const video = youtubeEmbed(exercise.video_url) || youtubeEmbed(exercise.instructions);
+    return el('div', {},
+      el('p', { class: 'pre-wrap' }, exercise.instructions),
+      exercise.metrics.length && el('p', { class: 'muted' }, `Metrics: ${exercise.metrics.join(', ')}`),
+      video && el('div', { class: 'video' }, el('iframe', { src: video, allowfullscreen: true, loading: 'lazy', title: exercise.name })),
+    );
+  }
+
+  function requestsSection(requests, main) {
+    if (!requests.length) return null;
+    return el('div', {},
+      el('h2', {}, `Requests for the Global List (${requests.length})`),
+      requests.map(exercise => el('details', { class: 'card' },
+        el('summary', {}, el('span', {}, exercise.name), el('span', { class: 'tag' }, `from ${exercise.owner_name}`)),
+        exerciseDetails(exercise),
+        el('div', { class: 'buttons' },
+          el('button', { class: 'primary', onclick: e => withBusy(e.currentTarget, async () => {
+            await api('POST', `/api/exercise-requests/${exercise.id}/approve`);
+            toast(`"${exercise.name}" added to the global list`);
+            await render(main);
+          }) }, 'Approve'),
+          el('button', { onclick: e => withBusy(e.currentTarget, async () => {
+            await api('POST', `/api/exercise-requests/${exercise.id}/decline`);
+            toast('Request declined. It stays a personal exercise.');
+            await render(main);
+          }) }, 'Decline'),
+        ),
+      )),
+    );
+  }
+
   async function render(main) {
-    const exercises = await api('GET', '/api/exercises');
+    const [exercises, requests] = await Promise.all([
+      api('GET', '/api/exercises'),
+      isCoach() ? api('GET', '/api/exercise-requests') : [],
+    ]);
     const list = el('div', {});
     const filter = el('input', { type: 'search', placeholder: `Filter ${exercises.length} exercises…`, oninput: () => applyFilter() });
 
@@ -67,9 +107,11 @@
 
     const create = exerciseForm();
     mount(main,
-      el('h1', {}, 'Manage Exercises'),
+      el('h1', {}, isCoach() ? 'Manage Exercises' : 'Exercises'),
+      requestsSection(requests, main),
       el('details', { class: 'card' },
-        el('summary', {}, 'Add Exercise'),
+        el('summary', {}, isCoach() ? 'Add Exercise' : 'Add Personal Exercise'),
+        !isCoach() && el('p', { class: 'muted field' }, 'Only you will see this exercise. You can ask a coach to add it to the global list.'),
         create.node,
         el('div', { class: 'buttons' }, el('button', { class: 'primary', onclick: e => formAction(e.currentTarget, create, async body => {
           await api('POST', '/api/exercises', body);
@@ -84,14 +126,25 @@
     );
 
     mount(list, exercises.map(exercise => {
+      const status = el('span', {});
+      const drawStatus = () => mount(status, exercise.owner && el('span', { class: 'tag' }, exercise.pending ? 'Requested' : 'Mine'));
+      drawStatus();
       const card = el('details', { class: 'card', dataset: { name: exercise.name.toLowerCase() } },
-        el('summary', {}, el('span', {}, exercise.name), exercise.metrics.length ? el('span', { class: 'tag' }, exercise.metrics.join(', ')) : null));
+        el('summary', {}, el('span', {}, exercise.name), status, exercise.metrics.length ? el('span', { class: 'tag' }, exercise.metrics.join(', ')) : null));
       // Editors are built on first open; there are 100+ exercises.
       card.addEventListener('toggle', () => {
         if (!card.open || card.childElementCount > 1) return;
+        if (!canEdit(exercise)) return card.append(exerciseDetails(exercise));
         const form = exerciseForm(exercise);
         let confirming = false;
         const actions = el('div', {});
+        const setRequest = (button, pending) => withBusy(button, async () => {
+          await api(pending ? 'POST' : 'DELETE', `/api/exercises/${exercise.id}/request`);
+          exercise.pending = pending;
+          toast(pending ? 'Sent to your coaches for approval' : 'Request cancelled');
+          drawStatus();
+          drawActions();
+        });
         const drawActions = () => mount(actions, confirming
           ? el('div', { class: 'confirm' }, `Delete "${exercise.name}"? Existing sessions keep their copy of it.`,
             el('div', { class: 'buttons' },
@@ -101,15 +154,20 @@
                 card.remove();
               }) }, 'Yes, delete'),
               el('button', { onclick: () => { confirming = false; drawActions(); } }, 'Cancel')))
-          : el('div', { class: 'buttons' },
-            el('button', { class: 'primary', onclick: e => formAction(e.currentTarget, form, async body => {
-              await api('PUT', `/api/exercises/${exercise.id}`, body);
-              Object.assign(exercise, body);
-              card.dataset.name = body.name.toLowerCase();
-              card.querySelector('summary span').textContent = body.name;
-              toast('Exercise saved');
-            }) }, 'Save'),
-            el('button', { class: 'danger', onclick: () => { confirming = true; drawActions(); } }, 'Delete')));
+          : el('div', {},
+            exercise.pending && el('p', { class: 'muted' }, 'Waiting for a coach to add this to the global list.'),
+            el('div', { class: 'buttons' },
+              el('button', { class: 'primary', onclick: e => formAction(e.currentTarget, form, async body => {
+                await api('PUT', `/api/exercises/${exercise.id}`, body);
+                Object.assign(exercise, body);
+                card.dataset.name = body.name.toLowerCase();
+                card.querySelector('summary span').textContent = body.name;
+                toast('Exercise saved');
+              }) }, 'Save'),
+              exercise.owner && (exercise.pending
+                ? el('button', { onclick: e => setRequest(e.currentTarget, false) }, 'Cancel Request')
+                : el('button', { onclick: e => setRequest(e.currentTarget, true) }, 'Request for Global List')),
+              el('button', { class: 'danger', onclick: () => { confirming = true; drawActions(); } }, 'Delete'))));
         drawActions();
         card.append(form.node, actions);
       });
@@ -118,7 +176,7 @@
     applyFilter();
   }
 
-  boot('exercises', main => render(main).catch(err => mount(main, el('div', { class: 'error' }, err.message))), { coachOnly: true });
+  boot('exercises', main => render(main).catch(err => mount(main, el('div', { class: 'error' }, err.message))));
 </script>
 </body>
 </html>

@@ -24,7 +24,9 @@ function normalizeStructure(supersets, catalog) {
   return supersets.map(superset => {
     const rounds = roundCount(superset);
     const exercises = superset.exercises.map(raw => {
-      const exercise = catalog.byId[raw.exercise_id] || catalog.byName[raw.name];
+      // Exercises outside this user's catalog (an athlete's personal ones, seen by their coach) are kept as-is.
+      const exercise = catalog.byId[raw.exercise_id] || catalog.byName[raw.name]
+        || (raw.exercise_id && raw.name ? { id: raw.exercise_id, name: raw.name, metrics: raw.metrics || [] } : null);
       if (!exercise) return null;
       return {
         exercise_id: exercise.id,
@@ -137,20 +139,24 @@ function sessionBuilder({ catalog, initial, saveLabel, onSave, onCancel, clients
   const root = el('div', { class: 'builder' });
 
   function exerciseSelect(exercise) {
+    // Legacy rows may only have a name; match it to the catalog.
+    const current = catalog.byId[exercise.exercise_id] || catalog.byName[exercise.name];
+    // Not in this user's catalog (e.g. a client's personal exercise); keep it selectable so saving doesn't drop it.
+    const outside = !current && exercise.exercise_id && exercise.name
+      ? { id: exercise.exercise_id, name: exercise.name, metrics: exercise.metrics || [] } : null;
     const select = el('select', {
       onchange: () => {
-        const chosen = catalog.byId[select.value];
+        const chosen = catalog.byId[select.value] || (outside && select.value === outside.id ? outside : null);
         Object.assign(exercise, chosen
           ? { exercise_id: chosen.id, name: chosen.name, metrics: chosen.metrics, instances: [] }
           : blankExercise());
       },
     },
       el('option', { value: '' }, 'Choose exercise…'),
+      outside && el('option', { value: outside.id }, `${outside.name} (not in your list)`),
       catalog.list.map(item => el('option', { value: item.id }, item.name)),
     );
-    // Legacy rows may only have a name; match it to the catalog.
-    const current = catalog.byId[exercise.exercise_id] || catalog.byName[exercise.name];
-    select.value = current ? current.id : '';
+    select.value = (current || outside)?.id || '';
     return select;
   }
 

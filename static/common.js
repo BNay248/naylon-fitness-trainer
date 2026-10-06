@@ -85,7 +85,7 @@ const COACH_CONTACT = "If you'd like to become a coach, please contact the admin
 function renderNav(active) {
   const links = [
     ['sessions', '/', 'Sessions'],
-    ME.role === 'coach' && ['exercises', '/exercises', 'Exercises'],
+    ['exercises', '/exercises', 'Exercises'],
     ME.role === 'coach' && ['clients', '/clients', 'Clients'],
     ['coaches', '/coaches', 'Coaches'],
     ['profile', '/profile', 'Profile'],
