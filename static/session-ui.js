@@ -2,7 +2,7 @@
 
 const MAX_REPEATS = 20;
 const clone = value => JSON.parse(JSON.stringify(value));
-const blankExercise = () => ({ exercise_id: '', name: '', metrics: [], instances: [] });
+const blankExercise = () => ({ exercise_id: '', name: '', metrics: [], note: '', targets: {}, instances: [] });
 const blankSuperset = () => ({ repeats: 1, exercises: [blankExercise()] });
 
 function roundCount(superset) {
@@ -12,6 +12,16 @@ function roundCount(superset) {
 function toCount(value) {
   const number = Math.floor(Number(value));
   return Number.isFinite(number) && number > 0 ? number : 0;
+}
+
+// Positive targets for the exercise's metrics only, like the server's clean_targets.
+function cleanTargets(targets, metrics) {
+  return Object.fromEntries(metrics.filter(metric => toCount((targets || {})[metric]) > 0).map(metric => [metric, toCount(targets[metric])]));
+}
+
+function targetText(exercise) {
+  const targets = exercise.targets || {};
+  return (exercise.metrics || []).filter(metric => targets[metric]).map(metric => `${metric} ${targets[metric]}`).join(', ');
 }
 
 // Same comparison the server uses to decide whether a logged workout still fits the session.
@@ -32,6 +42,8 @@ function normalizeStructure(supersets, catalog) {
         exercise_id: exercise.id,
         name: exercise.name,
         metrics: exercise.metrics,
+        note: (raw.note || '').trim(),
+        targets: cleanTargets(raw.targets, exercise.metrics),
         instances: Array.from({ length: rounds }, (_, round) => {
           const values = (raw.instances || [])[round]?.metrics || {};
           return { metrics: Object.fromEntries(exercise.metrics.filter(metric => metric in values).map(metric => [metric, toCount(values[metric])])) };
@@ -67,7 +79,11 @@ function sessionCopyText(session) {
   session.supersets.forEach((superset, idx) => {
     const rounds = Math.max(roundCount(superset), ...superset.exercises.map(ex => (ex.instances || []).length));
     lines.push(`\nSuperset ${idx + 1} (${rounds} round(s)):`);
-    superset.exercises.forEach(exercise => lines.push(`  ${exercise.name || 'Untitled'}`));
+    superset.exercises.forEach(exercise => {
+      const target = targetText(exercise);
+      lines.push(`  ${exercise.name || 'Untitled'}${target ? ` (target: ${target})` : ''}`);
+      if (exercise.note) lines.push(`    Note: ${exercise.note}`);
+    });
   });
   return lines.join('\n');
 }
@@ -104,19 +120,23 @@ async function copyToClipboard(text) {
   }
 }
 
-function numberStepper(value, onChange, { min = 0, max = Infinity } = {}) {
-  const input = el('input', { type: 'number', inputmode: 'numeric', min, value: String(value) });
+// `value` may be null when a `placeholder` is given: the field stays blank showing the placeholder,
+// and the −/+ buttons step from the placeholder's value.
+function numberStepper(value, onChange, { min = 0, max = Infinity, placeholder = null } = {}) {
+  const input = el('input', { type: 'number', inputmode: 'numeric', min, value: value == null ? '' : String(value) });
+  if (placeholder != null) input.placeholder = String(placeholder);
+  const current = () => toCount(input.value === '' && placeholder != null ? placeholder : input.value);
   const set = next => {
     const clamped = Math.min(max, Math.max(min, toCount(next)));
     input.value = String(clamped);
     onChange(clamped);
   };
-  input.addEventListener('change', () => set(input.value));
+  input.addEventListener('change', () => (input.value === '' && placeholder != null ? onChange(null) : set(input.value)));
   input.addEventListener('focus', () => input.select());
   return el('div', { class: 'stepper' },
-    el('button', { type: 'button', onclick: () => set(toCount(input.value) - 1), 'aria-label': 'Decrease' }, '−'),
+    el('button', { type: 'button', onclick: () => set(current() - 1), 'aria-label': 'Decrease' }, '−'),
     input,
-    el('button', { type: 'button', onclick: () => set(toCount(input.value) + 1), 'aria-label': 'Increase' }, '+'),
+    el('button', { type: 'button', onclick: () => set(current() + 1), 'aria-label': 'Increase' }, '+'),
   );
 }
 
@@ -130,7 +150,8 @@ function trackedDetails(key, openKeys, props, ...children) {
 // ---------- Builder (create + edit structure) ----------
 
 // Returns a node that edits a copy of `initial` and hands the cleaned result to onSave({name, supersets, assigned_to}).
-function sessionBuilder({ catalog, initial, saveLabel, onSave, onCancel, clients }) {
+// `intro` is an optional node shown above the save button (e.g. who an edit applies to).
+function sessionBuilder({ catalog, initial, saveLabel, onSave, onCancel, clients, intro }) {
   const state = {
     name: initial?.name || '',
     assignedTo: '',
@@ -148,8 +169,9 @@ function sessionBuilder({ catalog, initial, saveLabel, onSave, onCancel, clients
       onchange: () => {
         const chosen = catalog.byId[select.value] || (outside && select.value === outside.id ? outside : null);
         Object.assign(exercise, chosen
-          ? { exercise_id: chosen.id, name: chosen.name, metrics: chosen.metrics, instances: [] }
+          ? { exercise_id: chosen.id, name: chosen.name, metrics: chosen.metrics, targets: {}, instances: [] }
           : blankExercise());
+        render(); // show the note/target fields for the chosen exercise
       },
     },
       el('option', { value: '' }, 'Choose exercise…'),
@@ -158,6 +180,27 @@ function sessionBuilder({ catalog, initial, saveLabel, onSave, onCancel, clients
     );
     select.value = (current || outside)?.id || '';
     return select;
+  }
+
+  // Coach instructions for one exercise in this session: a free-text note and a target per metric.
+  function exerciseExtras(exercise) {
+    exercise.targets = exercise.targets || {};
+    return el('div', { class: 'exercise-extras' },
+      el('input', {
+        type: 'text', value: exercise.note || '', maxlength: 500, placeholder: 'Note (optional), e.g. hold at top for 5 seconds',
+        oninput: e => { exercise.note = e.target.value; },
+      }),
+      (exercise.metrics || []).length > 0 && el('div', { class: 'metric-grid' }, exercise.metrics.map(metric => el('div', {},
+        el('label', {}, `Target ${metric.toLowerCase()}`),
+        el('input', {
+          type: 'number', inputmode: 'numeric', min: 0, value: exercise.targets[metric] ?? '', placeholder: '–',
+          oninput: e => {
+            if (toCount(e.target.value)) exercise.targets[metric] = toCount(e.target.value);
+            else delete exercise.targets[metric];
+          },
+        }),
+      ))),
+    );
   }
 
   function render() {
@@ -178,9 +221,12 @@ function sessionBuilder({ catalog, initial, saveLabel, onSave, onCancel, clients
           el('span', { class: 'muted' }, 'Rounds'),
           el('div', { style: 'width:140px' }, numberStepper(roundCount(superset), value => { superset.repeats = value; }, { min: 1, max: MAX_REPEATS })),
         ),
-        superset.exercises.map((exercise, exerciseIdx) => el('div', { class: 'row field' },
-          el('div', { class: 'grow' }, exerciseSelect(exercise)),
-          el('button', { type: 'button', class: 'small danger', onclick: () => { superset.exercises.splice(exerciseIdx, 1); render(); } }, 'Remove'),
+        superset.exercises.map((exercise, exerciseIdx) => el('div', { class: 'builder-exercise field' },
+          el('div', { class: 'row' },
+            el('div', { class: 'grow' }, exerciseSelect(exercise)),
+            el('button', { type: 'button', class: 'small danger', onclick: () => { superset.exercises.splice(exerciseIdx, 1); render(); } }, 'Remove'),
+          ),
+          (exercise.exercise_id || exercise.name) && exerciseExtras(exercise),
         )),
         el('div', { class: 'buttons' },
           el('button', { type: 'button', onclick: () => { superset.exercises.push(blankExercise()); render(); } }, '+ Add Exercise'),
@@ -190,6 +236,7 @@ function sessionBuilder({ catalog, initial, saveLabel, onSave, onCancel, clients
       el('div', { class: 'buttons' },
         el('button', { type: 'button', onclick: () => { state.supersets.push(blankSuperset()); render(); } }, '+ Add Superset'),
       ),
+      intro,
       el('div', { class: 'buttons' },
         el('button', { type: 'button', class: 'primary', onclick: e => save(e.currentTarget) }, saveLabel),
         onCancel && el('button', { type: 'button', onclick: onCancel }, 'Cancel'),
@@ -219,7 +266,8 @@ function previousValues(session, exercise, round) {
   return Object.fromEntries(exercise.metrics.filter(metric => metrics[metric]).map(metric => [metric, metrics[metric]]));
 }
 
-// Working copy of the session's metrics: one instance per round, prefilled from saved or previous values.
+// Working copy of the session's metrics: one instance per round. Metrics with a target start blank (the target shows
+// as a placeholder); the rest are prefilled from saved or previous values.
 function workoutDraft(session) {
   return session.supersets.map(superset => ({
     repeats: roundCount(superset),
@@ -227,29 +275,52 @@ function workoutDraft(session) {
       exercise_id: exercise.exercise_id,
       name: exercise.name,
       metrics: exercise.metrics || [],
+      note: exercise.note || '',
+      targets: exercise.targets || {},
       instances: Array.from({ length: roundCount(superset) }, (_, round) => {
         const saved = (exercise.instances || [])[round]?.metrics || {};
         const previous = previousValues(session, exercise, round);
-        return { metrics: Object.fromEntries((exercise.metrics || []).map(metric => [metric, toCount(saved[metric] ?? previous[metric] ?? 0)])) };
+        return { metrics: Object.fromEntries((exercise.metrics || []).map(metric => [metric,
+          (exercise.targets || {})[metric] ? null : toCount(saved[metric] ?? previous[metric] ?? 0)])) };
       }),
     })),
   }));
 }
 
-// actions: {log(session, supersets), update(session, {name, supersets}), remove(session)}
-// drafts:  {get(id), set(id, supersets), clear(id)} — unsaved workout values, kept across reloads.
+// Fields left blank count as having hit the target.
+function withTargetsFilled(draft) {
+  const filled = clone(draft);
+  filled.forEach(superset => superset.exercises.forEach(exercise => exercise.instances.forEach(instance => {
+    for (const metric of Object.keys(instance.metrics)) {
+      if (instance.metrics[metric] == null) instance.metrics[metric] = toCount((exercise.targets || {})[metric]);
+    }
+  })));
+  return filled;
+}
+
+// actions: {log(session, supersets), update(session, {name, supersets, athlete, scope}), remove(session), assign(session, usernames)}
+// drafts:  {get(key), set(key, supersets), clear(key)} — unsaved workout values, kept across reloads.
 // openKeys: Set of expanded section keys, shared across re-renders.
-function sessionCard(session, { catalog, actions, drafts, openKeys, historyPending = 0 }) {
+// clients: the coach's clients [{username, name}], used to assign the session; omitted for non-coaches.
+// A session object is one athlete's view (session.user_id); a shared session appears once per athlete, so
+// per-view state is keyed by session.key rather than the session id.
+function sessionCard(session, { catalog, actions, drafts, openKeys, clients = null, historyPending = 0 }) {
+  const key = session.key || session.id;
+  const sharedWith = session.shared_with || [];
+  const athleteName = session.user_id === ME.username ? 'you' : (session.athlete_name || session.user_id);
   const body = el('div', {});
   let mode = 'log';
   let showVideos = false;
   let confirmingDelete = false;
+  let assigning = null; // Set of usernames picked in the assign panel while it's open
+  let editScope = session.can_edit_all ? 'all' : 'athlete';
   const unsynced = session.pending || historyPending > 0;
 
-  const card = trackedDetails(session.id, openKeys, { class: 'card', dataset: { sessionId: session.id } },
+  const card = trackedDetails(key, openKeys, { class: 'card', dataset: { sessionId: session.id } },
     el('summary', {},
       el('span', {}, session.name),
       el('span', { class: 'tag' }, `${session.supersets.length} superset(s)`),
+      sharedWith.length > 0 && el('span', { class: 'tag' }, 'Shared'),
       unsynced && el('span', { class: 'tag pending' }, 'Not synced')),
     body,
   );
@@ -264,27 +335,53 @@ function sessionCard(session, { catalog, actions, drafts, openKeys, historyPendi
         catalog,
         initial: session,
         saveLabel: 'Save Changes',
+        intro: scopeChooser(),
         onCancel: () => { mode = 'log'; render(); },
-        onSave: data => actions.update(session, { name: data.name, supersets: data.supersets }),
+        onSave: data => actions.update(session, { name: data.name, supersets: data.supersets, athlete: session.user_id, scope: editScope }),
       }));
     }
-    mount(body, toolbar(), logView(), historySection());
+    mount(body, toolbar(), sharedNote(), logView(), historySection());
+  }
+
+  function sharedNote() {
+    if (!sharedWith.length) return null;
+    return el('p', { class: 'muted' }, `Shared with ${sharedWith.map(other => other.name).join(', ')}. Editing it makes a separate copy unless the coach edits it for everyone.`);
+  }
+
+  // Who an edit to a shared session applies to. The coach who made it can change everyone's; anyone else gets their own copy.
+  function scopeChooser() {
+    if (!sharedWith.length) return null;
+    if (!session.can_edit_all) {
+      return el('p', { class: 'info' }, `This session is shared, so saving makes a separate copy for ${athleteName}. Everyone else keeps the original.`);
+    }
+    const option = (value, label) => el('label', { class: 'check' },
+      el('input', { type: 'radio', name: `scope-${key}`, checked: editScope === value, onchange: () => { editScope = value; } }), label);
+    return el('div', { class: 'field' },
+      el('label', {}, 'Apply changes to'),
+      option('all', `Everyone using this session (${sharedWith.length + 1} people)`),
+      option('athlete', `Only ${athleteName} (makes a separate copy)`),
+    );
   }
 
   function toolbar() {
     if (confirmingDelete) {
       return el('div', { class: 'confirm' },
-        el('div', {}, 'Delete this session? Its workout history is kept.'),
+        el('div', {}, sharedWith.length
+          ? `Remove this session for ${athleteName}? ${sharedWith.map(other => other.name).join(', ')} keep it.`
+          : 'Delete this session? Its workout history is kept.'),
         el('div', { class: 'buttons' },
-          el('button', { class: 'danger', onclick: e => withBusy(e.currentTarget, () => actions.remove(session)) }, 'Yes, delete'),
+          el('button', { class: 'danger', onclick: e => withBusy(e.currentTarget, () => actions.remove(session)) }, sharedWith.length ? 'Yes, remove' : 'Yes, delete'),
           el('button', { onclick: () => { confirmingDelete = false; render(); } }, 'Cancel'),
         ),
       );
     }
+    if (assigning) return assignPanel();
+    const canAssign = clients && clients.length > 0 && !session.id.startsWith('local-');
     return el('div', {},
       el('div', { class: 'buttons' },
         el('button', { onclick: () => { mode = 'edit'; render(); } }, 'Edit Session'),
-        session.can_delete && el('button', { class: 'danger', onclick: () => { confirmingDelete = true; render(); } }, 'Delete Session'),
+        canAssign && el('button', { onclick: () => { assigning = new Set(); render(); } }, 'Assign to Clients'),
+        session.can_delete && el('button', { class: 'danger', onclick: () => { confirmingDelete = true; render(); } }, sharedWith.length ? 'Remove Session' : 'Delete Session'),
         el('button', { onclick: async e => {
           const button = e.currentTarget;
           const copied = await copyToClipboard(sessionCopyText(session));
@@ -298,26 +395,54 @@ function sessionCard(session, { catalog, actions, drafts, openKeys, historyPendi
     );
   }
 
+  function assignPanel() {
+    const using = new Set([session.user_id, ...sharedWith.map(other => other.username)]);
+    const available = clients.filter(client => !using.has(client.username));
+    return el('div', { class: 'confirm' },
+      el('div', {}, 'Share this session with:'),
+      available.length
+        ? available.map(client => el('label', { class: 'check' },
+          el('input', { type: 'checkbox', checked: assigning.has(client.username), onchange: e => {
+            e.target.checked ? assigning.add(client.username) : assigning.delete(client.username);
+          } }),
+          `${client.name} (${client.username})`))
+        : el('p', { class: 'muted' }, 'All your clients already have this session.'),
+      el('p', { class: 'muted' }, 'They all use this session until someone edits their own copy.'),
+      el('div', { class: 'buttons' },
+        available.length > 0 && el('button', { class: 'primary', onclick: e => {
+          if (!assigning.size) return toast('Pick at least one client', 'error');
+          const usernames = [...assigning];
+          assigning = null;
+          return withBusy(e.currentTarget, () => actions.assign(session, usernames));
+        } }, 'Assign'),
+        el('button', { onclick: () => { assigning = null; render(); } }, 'Cancel'),
+      ),
+    );
+  }
+
   function logView() {
     // Resume an unsaved draft only if the session layout hasn't changed underneath it.
-    const stored = drafts.get(session.id);
+    const stored = drafts.get(key);
     const draft = stored && structureKey(stored) === structureKey(session.supersets) ? stored : workoutDraft(session);
-    const saveButton = el('button', { class: 'primary', onclick: () => withBusy(saveButton, () => actions.log(session, clone(draft))) }, 'Save Session');
+    const saveButton = el('button', { class: 'primary', onclick: () => withBusy(saveButton, () => actions.log(session, withTargetsFilled(draft))) }, 'Save Session');
 
     return el('div', {},
-      draft.map((superset, supersetIdx) => trackedDetails(`${session.id}:superset:${supersetIdx}`, openKeys, { class: 'card' },
+      draft.map((superset, supersetIdx) => trackedDetails(`${key}:superset:${supersetIdx}`, openKeys, { class: 'card' },
         el('summary', {}, `Superset ${supersetIdx + 1} • ${superset.repeats} round(s)`),
-        superset.exercises.map(exercise => exerciseLog(exercise, superset.repeats, () => drafts.set(session.id, draft))),
+        superset.exercises.map(exercise => exerciseLog(exercise, superset.repeats, () => drafts.set(key, draft))),
       )),
       el('div', { class: 'buttons' }, saveButton),
     );
   }
 
-  // One block per exercise: name/video once, then a row of inputs for each round.
+  // One block per exercise: name/note/video once, then a row of inputs for each round.
   function exerciseLog(exercise, rounds, onEdit) {
     const video = showVideos && exerciseVideo(exercise, catalog);
+    const target = targetText(exercise);
     return el('div', { class: 'exercise-log' },
       el('div', { class: 'name' }, exercise.name || 'Untitled'),
+      exercise.note && el('div', { class: 'exercise-note' }, exercise.note),
+      target && el('div', { class: 'muted' }, `Target: ${target}`),
       video && el('div', { class: 'video' }, el('iframe', { src: video, allowfullscreen: true, loading: 'lazy', title: exercise.name })),
       exercise.metrics.length
         ? Array.from({ length: rounds }, (_, round) => roundRow(exercise, round, onEdit))
@@ -329,11 +454,12 @@ function sessionCard(session, { catalog, actions, drafts, openKeys, historyPendi
     const previous = previousValues(session, exercise, round);
     const previousText = exercise.metrics.filter(metric => metric in previous).map(metric => `${metric}: ${previous[metric]}`).join(', ');
     const values = exercise.instances[round].metrics;
+    const targets = exercise.targets || {};
     return el('div', { class: 'round-row' },
       el('div', { class: 'round-title' }, `Round ${round + 1}`),
       el('div', { class: 'metric-grid' }, exercise.metrics.map(metric => el('div', {},
         el('label', {}, metric),
-        numberStepper(values[metric], value => { values[metric] = value; onEdit(); }),
+        numberStepper(values[metric], value => { values[metric] = value; onEdit(); }, { placeholder: targets[metric] || null }),
       ))),
       previousText && el('div', { class: 'muted' }, `Previous: ${previousText}`),
     );
@@ -341,13 +467,13 @@ function sessionCard(session, { catalog, actions, drafts, openKeys, historyPendi
 
   function historySection() {
     const list = el('div', {}, el('div', { class: 'muted' }, 'Loading…'));
-    const section = trackedDetails(`${session.id}:history`, openKeys, { class: 'card' }, el('summary', {}, 'History'), list);
+    const section = trackedDetails(`${key}:history`, openKeys, { class: 'card' }, el('summary', {}, 'History'), list);
     const load = async () => {
       if (!section.open) return;
       const waiting = historyPending > 0 && el('p', { class: 'muted' }, `${historyPending} workout(s) waiting to sync.`);
       if (session.id.startsWith('local-')) return mount(list, waiting || el('p', { class: 'muted' }, 'Not synced yet.'));
       try {
-        const logs = await api('GET', `/api/sessions/${session.id}/history`);
+        const logs = await api('GET', `/api/sessions/${session.id}/history?athlete=${encodeURIComponent(session.user_id)}`);
         mount(list, waiting, logs.length
           ? logs.map(log => el('div', { class: 'history-entry' },
             el('strong', {}, formatDate(log.created_at)),

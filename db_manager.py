@@ -21,6 +21,7 @@ class TrainerDB:
         self.db.workout_logs.create_index([("user_id", ASCENDING), ("created_at", DESCENDING)])
         self.db.workout_logs.create_index("client_id", sparse=True)
         self.db.sessions.create_index("client_id", sparse=True)
+        self.db.sessions.create_index("assignees", sparse=True)
 
     # Exercise methods
     def add_exercise(self, exercise_data: Dict) -> str:
@@ -38,6 +39,10 @@ class TrainerDB:
         """Global exercises (no owner) plus the personal exercises of the given users."""
         found = self.db.exercises.find({"owner": {"$in": [None, *usernames]}})
         return sorted(found, key=lambda item: str(item.get("name", "")).lower())
+
+    def get_exercises_by_ids(self, exercise_ids: List[str]) -> List[Dict]:
+        oids = [oid for oid in map(to_object_id, exercise_ids) if oid]
+        return list(self.db.exercises.find({"_id": {"$in": oids}})) if oids else []
 
     def get_pending_exercises(self) -> List[Dict]:
         return sorted(self.db.exercises.find({"pending": True}), key=lambda item: str(item.get("name", "")).lower())
@@ -124,7 +129,8 @@ class TrainerDB:
         return self.db.sessions.find_one({"client_id": client_id})
 
     def get_sessions_for_users(self, usernames: List[str]) -> List[Dict]:
-        sessions = self.db.sessions.find({"user_id": {"$in": list(usernames)}})
+        usernames = list(usernames)
+        sessions = self.db.sessions.find({"$or": [{"user_id": {"$in": usernames}}, {"assignees": {"$in": usernames}}]})
         return sorted(sessions, key=lambda item: str(item.get("name", "")).lower())
 
     def update_session(self, session_id: str, updates: Dict) -> bool:
@@ -153,8 +159,11 @@ class TrainerDB:
         })
         return str(result.inserted_id)
 
-    def get_workout_logs_by_session(self, session_id: str) -> List[Dict]:
-        return list(self.db.workout_logs.find({"session_id": session_id}).sort("created_at", -1))
+    def get_workout_logs_by_session(self, session_id: str, user_id: str) -> List[Dict]:
+        return list(self.db.workout_logs.find({"session_id": session_id, "user_id": user_id}).sort("created_at", -1))
+
+    def move_workout_logs(self, from_session_id: str, to_session_id: str, user_id: str) -> None:
+        self.db.workout_logs.update_many({"session_id": from_session_id, "user_id": user_id}, {"$set": {"session_id": to_session_id}})
 
     def get_latest_exercise_log(self, user_id: str, exercise_name: str) -> Optional[Dict]:
         """Most recent logged instances of an exercise for a user: {"created_at", "instances"}."""

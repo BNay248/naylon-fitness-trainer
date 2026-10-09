@@ -57,34 +57,58 @@ const SyncQueue = {
 };
 
 // Apply queued operations to server data so the UI reflects changes that haven't synced yet.
+// A shared session appears once per athlete (session.user_id); ops name the athlete they're about.
 function overlayQueue(serverData, queue, catalog) {
   const data = clone(serverData);
   const groups = () => [data.mine, ...data.clients.map(client => client.sessions)];
-  const find = id => groups().flat().find(session => session.id === id);
+  const groupFor = username => username === ME.username ? data.mine : data.clients.find(client => client.username === username)?.sessions;
+  const views = id => groups().flat().filter(session => session.id === id);
+  const find = (id, athlete) => views(id).find(session => !athlete || session.user_id === athlete);
+  const removeView = view => groups().forEach(group => { const idx = group.indexOf(view); if (idx >= 0) group.splice(idx, 1); });
+  const unshare = (id, athlete) => views(id).forEach(other => { other.shared_with = (other.shared_with || []).filter(person => person.username !== athlete); });
   const pendingLogs = {};
 
   for (const op of queue) {
     if (op.kind === 'create') {
       const owner = op.body.assigned_to || ME.username;
       const session = {
-        id: op.local_id, name: op.body.name, user_id: owner, coach_username: ME.username, version: 0,
-        supersets: normalizeStructure(op.body.supersets, catalog), can_delete: true, previous: {}, pending: true,
+        id: op.local_id, key: op.local_id, name: op.body.name, user_id: owner, coach_username: ME.username, version: 0,
+        supersets: normalizeStructure(op.body.supersets, catalog), shared_with: [], can_delete: true, previous: {}, pending: true,
       };
-      const group = owner === ME.username ? data.mine : data.clients.find(client => client.username === owner)?.sessions;
-      if (group) group.push(session);
+      groupFor(owner)?.push(session);
     } else if (op.kind === 'update') {
-      const session = find(op.session_id);
-      if (session) Object.assign(session, { name: op.body.name, supersets: normalizeStructure(op.body.supersets, catalog), pending: true });
-    } else if (op.kind === 'delete') {
-      for (const group of groups()) {
-        const idx = group.findIndex(session => session.id === op.session_id);
-        if (idx >= 0) group.splice(idx, 1);
+      const edited = { name: op.body.name, supersets: normalizeStructure(op.body.supersets, catalog), pending: true };
+      const shared = (find(op.session_id, op.athlete)?.shared_with || []).length > 0;
+      if (shared && op.body.scope !== 'all') {
+        // Becomes this athlete's own copy once synced.
+        const view = find(op.session_id, op.athlete);
+        unshare(op.session_id, view.user_id);
+        Object.assign(view, edited, { shared_with: [], can_edit_all: false });
+      } else {
+        views(op.session_id).forEach(view => Object.assign(view, edited));
       }
+    } else if (op.kind === 'delete') {
+      const targets = op.athlete ? [find(op.session_id, op.athlete)].filter(Boolean) : views(op.session_id);
+      targets.forEach(view => { removeView(view); unshare(op.session_id, view.user_id); });
+    } else if (op.kind === 'assign') {
+      const base = find(op.session_id);
+      if (!base) continue;
+      for (const username of op.body.usernames) {
+        const client = data.clients.find(item => item.username === username);
+        if (!client || find(op.session_id, username)) continue;
+        const current = find(op.session_id);
+        const athletes = [{ username: current.user_id, name: current.athlete_name || current.user_id }, ...(current.shared_with || [])];
+        views(op.session_id).forEach(view => { view.shared_with = [...(view.shared_with || []), { username, name: client.name }]; });
+        client.sessions.push({ ...clone(current), key: `${op.session_id}@${username}`, user_id: username, athlete_name: client.name,
+          shared_with: athletes, previous: {}, pending: true });
+      }
+      views(op.session_id).forEach(view => { view.can_edit_all = ME.role === 'coach' && view.coach_username === ME.username; });
     } else if (op.kind === 'log') {
-      pendingLogs[op.session_id] = (pendingLogs[op.session_id] || 0) + 1;
-      const session = find(op.session_id);
+      const session = find(op.session_id, op.body.user_id);
       if (!session) continue;
-      if (structureKey(session.supersets) === structureKey(op.body.supersets)) session.supersets = clone(op.body.supersets);
+      pendingLogs[session.key || session.id] = (pendingLogs[session.key || session.id] || 0) + 1;
+      // A shared session holds no one's values (each athlete starts from their own previous ones).
+      if (!(session.shared_with || []).length && structureKey(session.supersets) === structureKey(op.body.supersets)) session.supersets = clone(op.body.supersets);
       for (const superset of op.body.supersets) {
         for (const exercise of superset.exercises) {
           session.previous[exercise.name] = { created_at: op.body.logged_at, instances: clone(exercise.instances) };
@@ -122,6 +146,14 @@ function flushQueue(onNotice) {
         queue.forEach(next => { if (next.session_id === op.local_id) next.session_id = result.id; });
         drafts.rename(op.local_id, result.id);
         renameOpenKeys(op.local_id, result.id);
+      } else if (op.kind === 'update' && !drop && result.id && result.id !== op.session_id) {
+        // The edit made this athlete their own copy of a shared session; send their later changes there.
+        const athleteOf = next => next.kind === 'log' ? next.body.user_id : next.athlete;
+        queue.forEach(next => { if (next.session_id === op.session_id && athleteOf(next) === op.athlete) next.session_id = result.id; });
+        if (op.view_key) {
+          drafts.rename(op.view_key, result.id);
+          renameOpenKeys(op.view_key, result.id);
+        }
       }
       SyncQueue.inFlight = null;
       SyncQueue.save(queue);
@@ -140,7 +172,8 @@ function sendOp(op) {
   switch (op.kind) {
     case 'create': return api('POST', '/api/sessions', { ...op.body, client_id: op.id });
     case 'update': return api('PUT', `/api/sessions/${id}`, { ...op.body, base_version: op.base_version });
-    case 'delete': return api('DELETE', `/api/sessions/${id}?base_version=${op.base_version}`);
+    case 'delete': return api('DELETE', `/api/sessions/${id}?base_version=${op.base_version}${op.athlete ? `&athlete=${encodeURIComponent(op.athlete)}` : ''}`);
+    case 'assign': return api('POST', `/api/sessions/${id}/assign`, op.body);
     case 'log': return api('POST', `/api/sessions/${id}/log`, { ...op.body, client_id: op.id });
   }
   return Promise.resolve();

@@ -40,17 +40,21 @@
       openKeys.delete('create');
       queueChange({ kind: 'create', local_id: `local-${uuid()}`, body }, 'Session created');
     },
-    update: (session, body) => queueChange({ kind: 'update', session_id: session.id, base_version: session.version, body }, 'Session updated'),
+    update: (session, body) => queueChange({
+      kind: 'update', session_id: session.id, athlete: session.user_id, view_key: session.key || session.id, base_version: session.version, body,
+    }, 'Session updated'),
     remove: session => {
       if (session.id.startsWith('local-')) {
         SyncQueue.dropLocalSession(session.id);
         toast('Session deleted');
         return render();
       }
-      queueChange({ kind: 'delete', session_id: session.id, base_version: session.version }, 'Session deleted');
+      const shared = (session.shared_with || []).length > 0;
+      queueChange({ kind: 'delete', session_id: session.id, athlete: session.user_id, base_version: session.version }, shared ? 'Session removed' : 'Session deleted');
     },
+    assign: (session, usernames) => queueChange({ kind: 'assign', session_id: session.id, body: { usernames } }, 'Session assigned'),
     log: (session, supersets) => {
-      drafts.clear(session.id);
+      drafts.clear(session.key || session.id);
       queueChange({ kind: 'log', session_id: session.id, body: {
         supersets, logged_at: new Date().toISOString(), session_name: session.name, user_id: session.user_id,
       } }, 'Session saved');
@@ -100,7 +104,8 @@
         el('div', { class: 'info' }, offline ? "You're offline and this device has no saved sessions yet." : 'Loading…'));
     }
     const { data, pendingLogs } = overlayQueue(serverData, SyncQueue.load(), catalog);
-    const card = session => sessionCard(session, { catalog, actions, drafts, openKeys, historyPending: pendingLogs[session.id] || 0 });
+    const clients = ME.role === 'coach' ? data.clients.map(({ username, name }) => ({ username, name })) : null;
+    const card = session => sessionCard(session, { catalog, actions, drafts, openKeys, clients, historyPending: pendingLogs[session.key || session.id] || 0 });
 
     mount(main,
       el('h1', {}, 'Training Sessions'),

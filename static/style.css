@@ -81,6 +81,10 @@ nav .nav-toggle { display: none; margin-left: auto; padding: 6px 12px; font-size
 
 /* SESSIONS */
 .superset { border: 1px solid var(--border-soft); border-radius: 10px; padding: 10px; margin-bottom: 10px; }
+.builder-exercise { padding-bottom: 10px; border-bottom: 1px solid var(--border-soft); }
+.exercise-extras { margin-top: 6px; }
+.exercise-extras .metric-grid input { font-size: 15px; }
+.exercise-note { font-style: italic; color: var(--warn); font-size: 14px; margin-top: 2px; }
 .superset-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; font-weight: 600; }
 .superset-head .grow { flex: 1; }
 .superset-head input { width: 70px; }
