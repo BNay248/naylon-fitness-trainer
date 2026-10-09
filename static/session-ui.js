@@ -14,9 +14,15 @@ function toCount(value) {
   return Number.isFinite(number) && number > 0 ? number : 0;
 }
 
+// A metric value: non-negative, up to 2 decimal places (22.5 stays 22.5, 10.0 becomes 10), like the server's to_amount.
+function toAmount(value) {
+  const number = Number(value);
+  return Number.isFinite(number) && number > 0 ? Math.round(number * 100) / 100 : 0;
+}
+
 // Positive targets for the exercise's metrics only, like the server's clean_targets.
 function cleanTargets(targets, metrics) {
-  return Object.fromEntries(metrics.filter(metric => toCount((targets || {})[metric]) > 0).map(metric => [metric, toCount(targets[metric])]));
+  return Object.fromEntries(metrics.filter(metric => toAmount((targets || {})[metric]) > 0).map(metric => [metric, toAmount(targets[metric])]));
 }
 
 function targetText(exercise) {
@@ -46,7 +52,7 @@ function normalizeStructure(supersets, catalog) {
         targets: cleanTargets(raw.targets, exercise.metrics),
         instances: Array.from({ length: rounds }, (_, round) => {
           const values = (raw.instances || [])[round]?.metrics || {};
-          return { metrics: Object.fromEntries(exercise.metrics.filter(metric => metric in values).map(metric => [metric, toCount(values[metric])])) };
+          return { metrics: Object.fromEntries(exercise.metrics.filter(metric => metric in values).map(metric => [metric, toAmount(values[metric])])) };
         }),
       };
     }).filter(Boolean);
@@ -121,13 +127,14 @@ async function copyToClipboard(text) {
 }
 
 // `value` may be null when a `placeholder` is given: the field stays blank showing the placeholder,
-// and the −/+ buttons step from the placeholder's value.
-function numberStepper(value, onChange, { min = 0, max = Infinity, placeholder = null } = {}) {
-  const input = el('input', { type: 'number', inputmode: 'numeric', min, value: value == null ? '' : String(value) });
+// and the −/+ buttons step from the placeholder's value. Decimals are allowed unless `integer` is set.
+function numberStepper(value, onChange, { min = 0, max = Infinity, placeholder = null, integer = false } = {}) {
+  const parse = integer ? toCount : toAmount;
+  const input = el('input', { type: 'number', inputmode: integer ? 'numeric' : 'decimal', step: integer ? '1' : 'any', min, value: value == null ? '' : String(value) });
   if (placeholder != null) input.placeholder = String(placeholder);
-  const current = () => toCount(input.value === '' && placeholder != null ? placeholder : input.value);
+  const current = () => parse(input.value === '' && placeholder != null ? placeholder : input.value);
   const set = next => {
-    const clamped = Math.min(max, Math.max(min, toCount(next)));
+    const clamped = Math.min(max, Math.max(min, parse(next)));
     input.value = String(clamped);
     onChange(clamped);
   };
@@ -193,9 +200,9 @@ function sessionBuilder({ catalog, initial, saveLabel, onSave, onCancel, clients
       (exercise.metrics || []).length > 0 && el('div', { class: 'metric-grid' }, exercise.metrics.map(metric => el('div', {},
         el('label', {}, `Target ${metric.toLowerCase()}`),
         el('input', {
-          type: 'number', inputmode: 'numeric', min: 0, value: exercise.targets[metric] ?? '', placeholder: '–',
+          type: 'number', inputmode: 'decimal', step: 'any', min: 0, value: exercise.targets[metric] ?? '', placeholder: '–',
           oninput: e => {
-            if (toCount(e.target.value)) exercise.targets[metric] = toCount(e.target.value);
+            if (toAmount(e.target.value)) exercise.targets[metric] = toAmount(e.target.value);
             else delete exercise.targets[metric];
           },
         }),
@@ -219,7 +226,7 @@ function sessionBuilder({ catalog, initial, saveLabel, onSave, onCancel, clients
         el('div', { class: 'superset-head' },
           el('span', { class: 'grow' }, `Superset ${supersetIdx + 1}`),
           el('span', { class: 'muted' }, 'Rounds'),
-          el('div', { style: 'width:140px' }, numberStepper(roundCount(superset), value => { superset.repeats = value; }, { min: 1, max: MAX_REPEATS })),
+          el('div', { style: 'width:140px' }, numberStepper(roundCount(superset), value => { superset.repeats = value; }, { min: 1, max: MAX_REPEATS, integer: true })),
         ),
         superset.exercises.map((exercise, exerciseIdx) => el('div', { class: 'builder-exercise field' },
           el('div', { class: 'row' },
@@ -281,7 +288,7 @@ function workoutDraft(session) {
         const saved = (exercise.instances || [])[round]?.metrics || {};
         const previous = previousValues(session, exercise, round);
         return { metrics: Object.fromEntries((exercise.metrics || []).map(metric => [metric,
-          (exercise.targets || {})[metric] ? null : toCount(saved[metric] ?? previous[metric] ?? 0)])) };
+          (exercise.targets || {})[metric] ? null : toAmount(saved[metric] ?? previous[metric] ?? 0)])) };
       }),
     })),
   }));
@@ -292,7 +299,7 @@ function withTargetsFilled(draft) {
   const filled = clone(draft);
   filled.forEach(superset => superset.exercises.forEach(exercise => exercise.instances.forEach(instance => {
     for (const metric of Object.keys(instance.metrics)) {
-      if (instance.metrics[metric] == null) instance.metrics[metric] = toCount((exercise.targets || {})[metric]);
+      if (instance.metrics[metric] == null) instance.metrics[metric] = toAmount((exercise.targets || {})[metric]);
     }
   })));
   return filled;
@@ -424,6 +431,12 @@ function sessionCard(session, { catalog, actions, drafts, openKeys, clients = nu
     // Resume an unsaved draft only if the session layout hasn't changed underneath it.
     const stored = drafts.get(key);
     const draft = stored && structureKey(stored) === structureKey(session.supersets) ? stored : workoutDraft(session);
+    // Notes and targets always come from the session, so edits show up even over an older draft.
+    draft.forEach((superset, s) => superset.exercises.forEach((exercise, e) => {
+      const current = session.supersets[s].exercises[e];
+      exercise.note = current.note || '';
+      exercise.targets = current.targets || {};
+    }));
     const saveButton = el('button', { class: 'primary', onclick: () => withBusy(saveButton, () => actions.log(session, withTargetsFilled(draft))) }, 'Save Session');
 
     return el('div', {},

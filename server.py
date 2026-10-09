@@ -1,3 +1,4 @@
+import math
 import os
 import secrets
 from datetime import datetime, timedelta, timezone
@@ -105,6 +106,18 @@ def to_int(value: Any) -> int:
         return 0
 
 
+def to_amount(value: Any) -> float:
+    """A metric value: non-negative, up to 2 decimal places, and a plain int when whole (so 10.0 is stored as 10)."""
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return 0
+    if not math.isfinite(number) or number <= 0:
+        return 0
+    number = round(number, 2)
+    return int(number) if number.is_integer() else number
+
+
 def clamp_repeats(value: Any) -> int:
     return min(MAX_REPEATS, max(1, to_int(value) or 1))
 
@@ -115,7 +128,7 @@ def clean_instances(instances: Any, metrics: List[str], rounds: int) -> List[Dic
     cleaned = []
     for idx in range(rounds):
         values = instances[idx].get("metrics", {}) if idx < len(instances) and isinstance(instances[idx], dict) else {}
-        cleaned.append({"metrics": {metric: to_int(values[metric]) for metric in metrics if metric in values}})
+        cleaned.append({"metrics": {metric: to_amount(values[metric]) for metric in metrics if metric in values}})
     return cleaned
 
 
@@ -125,7 +138,7 @@ def clean_note(value: Any) -> str:
 
 def clean_targets(targets: Any, metrics: List[str]) -> Dict[str, int]:
     targets = targets if isinstance(targets, dict) else {}
-    return {metric: to_int(targets[metric]) for metric in metrics if to_int(targets.get(metric)) > 0}
+    return {metric: to_amount(targets[metric]) for metric in metrics if to_amount(targets.get(metric)) > 0}
 
 
 def clean_structure(raw_supersets: Any, usernames: List[str], existing: Optional[List[Dict]] = None) -> List[Dict]:
