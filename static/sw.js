@@ -1,4 +1,4 @@
-const CACHE_NAME = 'trainer-shell-v1';
+const CACHE_NAME = 'trainer-shell-v2';
 const PAGES = ['/', '/exercises', '/clients', '/coaches', '/profile', '/admin'];
 const CORE_ASSETS = [
   ...PAGES,
@@ -13,7 +13,7 @@ const CORE_ASSETS = [
 
 self.addEventListener('install', event => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then(cache => cache.addAll(CORE_ASSETS)).then(() => self.skipWaiting())
+    caches.open(CACHE_NAME).then(cache => cache.addAll(CORE_ASSETS.map(url => new Request(url, { cache: 'reload' })))).then(() => self.skipWaiting())
   );
 });
 
@@ -34,7 +34,9 @@ self.addEventListener('fetch', event => {
   if (url.origin !== location.origin || url.pathname.startsWith('/api/')) return; // app JS handles API offline fallback
 
   event.respondWith(
-    fetch(request)
+    // cache: 'no-cache' makes the browser revalidate its HTTP cache too; otherwise it can hand back days-old JS.
+    // (Fetched by URL because a navigation Request can't be re-issued with a different cache mode.)
+    fetch(request.url, { cache: 'no-cache', credentials: 'same-origin' })
       .then(res => {
         if (res.ok) {
           const copy = res.clone();

@@ -47,6 +47,16 @@ SECRET = load_secret()
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
+
+@app.middleware("http")
+async def revalidate_assets(request: Request, call_next):
+    # Without this, browsers guess a cache lifetime for pages/JS/CSS and keep running old code after a deploy.
+    # "no-cache" still allows caching, but every use is revalidated (a cheap 304 when nothing changed).
+    response = await call_next(request)
+    if not request.url.path.startswith("/api/"):
+        response.headers.setdefault("Cache-Control", "no-cache")
+    return response
+
 # ==================== HELPERS ====================
 
 
