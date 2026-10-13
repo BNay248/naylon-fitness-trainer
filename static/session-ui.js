@@ -195,24 +195,22 @@ async function copyToClipboard(text) {
 
 // `value` may be null when a `placeholder` is given: the field stays blank showing the placeholder,
 // and the −/+ buttons step from the placeholder's value. Decimals are allowed unless `integer` is set.
-function numberStepper(value, onChange, { min = 0, max = Infinity, placeholder = null, integer = false } = {}) {
+function numberInput(value, onChange, { min = 0, max = Infinity, placeholder = null, integer = false } = {}) {
   const parse = integer ? toCount : toAmount;
-  const input = el('input', { type: 'number', inputmode: integer ? 'numeric' : 'decimal', step: integer ? '1' : 'any', min, value: value == null ? '' : String(value) });
+  const input = el('input', { type: 'number', class: 'number-input', inputmode: integer ? 'numeric' : 'decimal', step: integer ? '1' : 'any', min, value: value == null ? '' : String(value) });
   if (placeholder != null) input.placeholder = String(placeholder);
-  const current = () => parse(input.value === '' && placeholder != null ? placeholder : input.value);
-  const set = next => {
-    const clamped = Math.min(max, Math.max(min, parse(next)));
+  input.addEventListener('change', () => {
+    if (input.value === '' && placeholder != null) return onChange(null);
+    const clamped = Math.min(max, Math.max(min, parse(input.value)));
     input.value = String(clamped);
     onChange(clamped);
-  };
-  input.addEventListener('change', () => (input.value === '' && placeholder != null ? onChange(null) : set(input.value)));
+  });
   input.addEventListener('focus', () => input.select());
-  return el('div', { class: 'stepper' },
-    el('button', { type: 'button', onclick: () => set(current() - 1), 'aria-label': 'Decrease' }, '−'),
-    input,
-    el('button', { type: 'button', onclick: () => set(current() + 1), 'aria-label': 'Increase' }, '+'),
-  );
+  return input;
 }
+
+// A row of metric fields, at most 3 per line (more wrap onto further lines).
+const metricGrid = (items, extraClass = '') => el('div', { class: `metric-grid ${extraClass}`.trim(), style: `--cols: ${Math.min(3, Math.max(1, items.length))}` }, items);
 
 // Tracks which <details> are open (by key) so re-renders from background sync don't collapse anything.
 function trackedDetails(key, openKeys, props, ...children) {
@@ -263,7 +261,7 @@ function sessionBuilder({ catalog, initial, saveLabel, onSave, onCancel, clients
         type: 'text', value: exercise.note || '', maxlength: 500, placeholder: 'Note (optional), e.g. hold at top for 5 seconds',
         oninput: e => { exercise.note = e.target.value; },
       }),
-      (exercise.metrics || []).length > 0 && el('div', { class: 'metric-grid' }, exercise.metrics.map(metric => el('div', {},
+      (exercise.metrics || []).length > 0 && metricGrid(exercise.metrics.map(metric => el('div', {},
         el('label', {}, `Target ${metric.toLowerCase()}`),
         el('input', {
           type: 'number', inputmode: 'decimal', step: 'any', min: 0, value: exercise.targets[metric] ?? '', placeholder: '–',
@@ -292,7 +290,7 @@ function sessionBuilder({ catalog, initial, saveLabel, onSave, onCancel, clients
         el('div', { class: 'superset-head' },
           el('span', { class: 'grow' }, `Superset ${supersetIdx + 1}`),
           el('span', { class: 'muted' }, 'Rounds'),
-          el('div', { style: 'width:140px' }, numberStepper(roundCount(superset), value => { superset.repeats = value; }, { min: 1, max: MAX_REPEATS, integer: true })),
+          el('div', { style: 'width:80px' }, numberInput(roundCount(superset), value => { superset.repeats = value; }, { min: 1, max: MAX_REPEATS, integer: true })),
         ),
         superset.exercises.map((exercise, exerciseIdx) => el('div', { class: 'builder-exercise field' },
           el('div', { class: 'row' },
@@ -638,9 +636,9 @@ function sessionCard(session, { catalog, actions, drafts, openKeys, clients = nu
       ),
       swap.picker?.from === round && swapPicker(exercise, rounds, swap),
       metrics.length
-        ? el('div', { class: 'metric-grid' }, metrics.map(metric => el('div', {},
+        ? metricGrid(metrics.map(metric => el('div', {},
           el('label', {}, metric),
-          numberStepper(instance.metrics[metric], value => { instance.metrics[metric] = value; onEdit(); }, { placeholder: targets[metric] || null }),
+          numberInput(instance.metrics[metric], value => { instance.metrics[metric] = value; onEdit(); }, { placeholder: targets[metric] || null }),
         )))
         : el('div', { class: 'muted' }, 'No metrics configured for this exercise'),
       previousText && el('div', { class: 'muted' }, `Previous: ${previousText}`),

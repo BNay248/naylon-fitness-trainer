@@ -108,9 +108,9 @@
       return el('details', { class: 'card' },
         el('summary', {}, 'Targets & note'),
         el('p', { class: 'muted field' }, 'Targets apply to whichever exercise is picked, if it tracks that metric.'),
-        el('div', { class: 'metric-grid targets-grid field' }, TARGET_METRICS.map(metric => el('div', {},
+        metricGrid(TARGET_METRICS.map(metric => el('div', {},
           el('label', {}, metric),
-          numberStepper(slot.targets[metric] ?? null, value => { value ? slot.targets[metric] = value : delete slot.targets[metric]; }, { placeholder: '' })))),
+          numberInput(slot.targets[metric] ?? null, value => { value ? slot.targets[metric] = value : delete slot.targets[metric]; }, { placeholder: '' }))), 'field'),
         el('input', { type: 'text', placeholder: 'Note for the client (optional)', value: slot.note, oninput: e => { slot.note = e.target.value; } }));
     }
 
@@ -148,7 +148,7 @@
           el('div', { class: 'superset-head' },
             el('span', { class: 'grow' }, `Superset ${supersetIdx + 1}`),
             el('span', { class: 'muted' }, 'Rounds'),
-            numberStepper(superset.repeats, value => { superset.repeats = value; }, { min: 1, max: 20, integer: true })),
+            el('div', { style: 'width:80px' }, numberInput(superset.repeats, value => { superset.repeats = value; }, { min: 1, max: 20, integer: true }))),
           superset.slots.map((slot, index) => slotEditor(superset, slot, index)),
           el('div', { class: 'buttons' },
             el('button', { type: 'button', onclick: () => { superset.slots.push(blankSlot()); render(); } }, 'Add Slot'),
