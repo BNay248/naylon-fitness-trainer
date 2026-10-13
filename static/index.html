@@ -82,7 +82,7 @@
   async function sync() {
     const before = snapshot();
     try {
-      await flushQueue(message => toast(message, 'error'));
+      await flushQueue(message => toast(message, 'error'), (records, athlete) => records.forEach(record => toast(recordText(record, athlete), 'pr')));
       await refresh();
     } catch (err) {
       if (err.status !== 401) toast(err.message, 'error');

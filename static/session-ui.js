@@ -97,6 +97,48 @@ function exerciseVideo(exercise, catalog) {
   return youtubeEmbed(details.video_url) || youtubeEmbed(details.instructions);
 }
 
+// How well `to` stands in for `from`, 0 = not a match. Similarity is proportional (shared / combined), so a focused
+// match beats one that merely works more muscles: movement patterns weigh most, then primary muscles, then all
+// muscles. A substitute must be the same type of exercise (strength, mobility or cardio), work one of the
+// original's primary muscles, and share a metric.
+function swapScore(from, to) {
+  const similarity = (a = [], b = []) => {
+    const union = new Set([...a, ...b]);
+    return union.size ? a.filter(id => b.includes(id)).length / union.size : 0;
+  };
+  const sharesAny = (a = [], b = []) => a.some(id => b.includes(id));
+  const type = item => {
+    const kinds = item.pattern_kinds || [];
+    if (kinds.length && kinds.every(kind => kind === 'Mobility')) return 'mobility';
+    if (kinds.length && kinds.every(kind => kind === 'Conditioning')) return 'cardio';
+    return 'strength';
+  };
+  const allMuscles = item => [...(item.primary_muscle_ids || []), ...(item.secondary_muscle_ids || [])];
+  if (type(from) !== type(to) || !sharesAny(from.primary_muscle_ids, allMuscles(to)) || !sharesAny(from.metrics, to.metrics)) return 0;
+  return similarity(from.movement_pattern_ids, to.movement_pattern_ids) * 3
+    + similarity(from.primary_muscle_ids, to.primary_muscle_ids) * 2
+    + similarity(allMuscles(from), allMuscles(to));
+}
+
+// The closest substitutes for an exercise, best first.
+function swapSuggestions(from, list, limit = 8) {
+  return list.filter(item => item.id !== from.id)
+    .map(item => ({ item, score: swapScore(from, item) }))
+    .filter(({ score }) => score > 0)
+    .sort((a, b) => b.score - a.score || a.item.name.localeCompare(b.item.name))
+    .slice(0, limit).map(({ item }) => item);
+}
+
+// "New PR! Bench Press (Barbell): 105 Weight (was 100)" for one record from the log endpoint.
+function recordText(record, athlete) {
+  const who = athlete && athlete !== ME.username ? ` for ${athlete}` : '';
+  const sameWeight = record.metric === 'Weight' && record.value === record.previous;
+  const what = sameWeight ? `${record.reps} reps at ${record.value} (was ${record.previous_reps})`
+    : record.metric === 'Reps' ? `${record.value} reps (was ${record.previous})`
+      : `${record.metric} ${record.value} (was ${record.previous})`;
+  return `🏆 New PR${who}! ${record.name}: ${what}`;
+}
+
 function makeCatalog(exercises) {
   return {
     list: exercises,
@@ -541,9 +583,13 @@ function sessionCard(session, { catalog, actions, drafts, openKeys, clients = nu
   // Choose a substitute for some rounds of this workout only (machine taken, injury, …). The session itself is unchanged.
   function swapPicker(exercise, rounds, swap) {
     const picked = swap.picker.rounds;
+    const planned = catalog.byId[exercise.exercise_id];
+    const matches = planned ? swapSuggestions(planned, catalog.list) : [];
+    const options = items => items.filter(item => item.id !== exercise.exercise_id).map(item => el('option', { value: item.id }, item.name));
     const select = el('select', {},
       el('option', { value: '' }, 'Do instead…'),
-      catalog.list.filter(item => item.id !== exercise.exercise_id).map(item => el('option', { value: item.id }, item.name)),
+      matches.length ? [el('optgroup', { label: 'Best matches' }, options(matches)), el('optgroup', { label: 'All exercises' }, options(catalog.list))]
+        : options(catalog.list),
     );
     const chips = rounds > 1 && el('div', { class: 'chips field' }, Array.from({ length: rounds }, (_, round) => {
       const chip = el('span', { class: `chip${picked.has(round) ? ' on' : ''}`, onclick: () => {

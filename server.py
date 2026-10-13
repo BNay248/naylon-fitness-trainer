@@ -508,7 +508,10 @@ def get_pending_exercise(exercise_id: str) -> Dict:
 
 @app.get("/api/exercises")
 def list_exercises(user: Dict = Depends(current_user)):
-    return [serialize_exercise(exercise) for exercise in db.get_visible_exercises([user["username"]])]
+    # pattern_kinds (e.g. Mobility, Conditioning) let swap suggestions keep stretches and cardio apart from strength work.
+    kind_of = {str(pattern["_id"]): pattern.get("kind") for pattern in db.get_items("movement_patterns")}
+    return [{**serialize_exercise(exercise), "pattern_kinds": unique(kind_of[i] for i in exercise.get("movement_pattern_ids") or [] if kind_of.get(i))}
+            for exercise in db.get_visible_exercises([user["username"]])]
 
 
 @app.post("/api/exercises")
@@ -819,6 +822,58 @@ def parse_logged_at(value: Optional[str]) -> datetime:
     return min(logged_at, now)
 
 
+# The first of these an exercise logs decides what counts as a PR for it.
+PR_METRICS = ["Weight", "Reps", "Distance", "Duration"]
+
+
+def rounds_by_exercise(supersets: List[Dict]) -> Dict[str, Dict]:
+    """Logged rounds grouped by the exercise actually done (a swapped round counts as its substitute)."""
+    found: Dict[str, Dict] = {}
+    for superset in supersets:
+        for exercise in superset.get("exercises", []):
+            for instance in exercise.get("instances", []):
+                done = instance.get("swap") or exercise
+                if done.get("exercise_id"):
+                    entry = found.setdefault(done["exercise_id"], {"name": done.get("name", ""), "rounds": []})
+                    entry["rounds"].append(instance.get("metrics") or {})
+    return found
+
+
+def best_round(rounds: List[Dict], metric: str) -> Optional[tuple]:
+    """(top value, most reps at that value) across rounds, or None if the metric was never logged."""
+    values = [(round_.get(metric) or 0, round_.get("Reps") or 0) for round_ in rounds if (round_.get(metric) or 0) > 0]
+    return max(values) if values else None
+
+
+def personal_records(athlete: str, supersets: List[Dict]) -> List[Dict]:
+    """Exercises in a workout (not yet saved) that beat the athlete's previous best.
+
+    Heavier weight is a PR, as is more reps at the same top weight; otherwise more reps, distance or duration.
+    An exercise's first log is never a PR. On assisted machines more weight means more help, so reps decide."""
+    current = rounds_by_exercise(supersets)
+    history: Dict[str, List[Dict]] = {}
+    for log in db.get_logs_with_exercises(athlete, list(current)):
+        for exercise_id, entry in rounds_by_exercise(log.get("supersets", [])).items():
+            history.setdefault(exercise_id, []).extend(entry["rounds"])
+    records = []
+    for exercise_id, entry in current.items():
+        past = history.get(exercise_id)
+        if not past:
+            continue
+        for metric in PR_METRICS:
+            if metric == "Weight" and "assisted" in entry["name"].lower():
+                continue
+            now = best_round(entry["rounds"], metric)
+            if not now:
+                continue
+            before = best_round(past, metric)
+            if before and now > before:
+                records.append({"exercise_id": exercise_id, "name": entry["name"], "metric": metric,
+                                "value": now[0], "reps": now[1], "previous": before[0], "previous_reps": before[1]})
+            break
+    return records
+
+
 @app.post("/api/sessions/{session_id}/log")
 def log_workout(session_id: str, req: LogRequest, user: Dict = Depends(current_user)):
     """Record a workout. The session keeps the latest values only if its structure still matches.
@@ -831,18 +886,19 @@ def log_workout(session_id: str, req: LogRequest, user: Dict = Depends(current_u
     athlete = req.user_id or user["username"]
     if not can_act_for(user, athlete):
         raise HTTPException(status_code=404, detail="Session not found")
+    prs = personal_records(athlete, snapshot)  # before saving, so this workout isn't compared with itself
     if session is None or athlete not in session_athletes(session):
         # Deleted, or no longer this athlete's (removed or copied while offline): keep the workout anyway.
         orphan = {"_id": session_id, "name": req.session_name or (session or {}).get("name") or "Deleted session", "user_id": athlete}
         log_id = db.add_workout_log(orphan, snapshot, user["username"], req.client_id, parse_logged_at(req.logged_at))
-        return {"id": log_id, "session_updated": False, "session_deleted": True}
+        return {"id": log_id, "session_updated": False, "session_deleted": True, "prs": prs}
     structure_matches = structure_signature(snapshot) == structure_signature(session.get("supersets", []))
     # A shared session holds no one's values; each athlete's start values come from their own logs.
     session_updated = structure_matches and not is_shared(session)
     if session_updated:
         db.update_session(session_id, {"supersets": with_instances(session.get("supersets", []), snapshot)})
     log_id = db.add_workout_log({**session, "user_id": athlete}, snapshot, user["username"], req.client_id, parse_logged_at(req.logged_at))
-    return {"id": log_id, "session_updated": structure_matches, "session_deleted": False}
+    return {"id": log_id, "session_updated": structure_matches, "session_deleted": False, "prs": prs}
 
 
 def with_instances(supersets: List[Dict], snapshot: List[Dict]) -> List[Dict]:

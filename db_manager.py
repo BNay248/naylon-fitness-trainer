@@ -215,6 +215,14 @@ class TrainerDB:
         })
         return str(result.inserted_id)
 
+    def get_logs_with_exercises(self, user_id: str, exercise_ids: List[str]) -> List[Dict]:
+        """A user's logs that include any of these exercises, planned or swapped in."""
+        return list(self.db.workout_logs.find(
+            {"user_id": user_id, "$or": [{"supersets.exercises.exercise_id": {"$in": exercise_ids}},
+                                         {"supersets.exercises.instances.swap.exercise_id": {"$in": exercise_ids}}]},
+            {"supersets": 1},
+        ))
+
     def get_workout_logs_by_session(self, session_id: str, user_id: str) -> List[Dict]:
         return list(self.db.workout_logs.find({"session_id": session_id, "user_id": user_id}).sort("created_at", -1))
 

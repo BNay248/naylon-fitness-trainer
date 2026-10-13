@@ -58,9 +58,9 @@ async function api(method, path, body) {
 
 function toast(message, kind = 'ok') {
   const box = document.getElementById('toasts') || document.body.appendChild(el('div', { id: 'toasts' }));
-  const node = el('div', { class: `toast ${kind === 'error' ? 'error' : ''}` }, message);
+  const node = el('div', { class: `toast ${kind === 'ok' ? '' : kind}` }, message);
   box.appendChild(node);
-  setTimeout(() => node.remove(), kind === 'error' ? 5000 : 2500);
+  setTimeout(() => node.remove(), kind === 'ok' ? 2500 : 5000);
 }
 
 // Run an async action with a button disabled while it's in flight; errors become toasts.

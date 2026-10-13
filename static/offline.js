@@ -123,7 +123,8 @@ function overlayQueue(serverData, queue, catalog) {
 
 // Send queued operations one at a time, in order. Stops at the first network/server failure and retries later.
 let flushing = null;
-function flushQueue(onNotice) {
+// onNotice(message) reports problems; onRecords(prs, athlete) gets the personal records a synced workout set.
+function flushQueue(onNotice, onRecords = () => {}) {
   flushing = flushing || (async () => {
     let queue = SyncQueue.load();
     while (queue.length) {
@@ -161,6 +162,7 @@ function flushQueue(onNotice) {
         const name = op.body.session_name;
         if (result.session_deleted) onNotice(`"${name}" was deleted before your workout synced. The workout was still recorded.`);
         else if (!result.session_updated) onNotice(`"${name}" was changed before your workout synced, so it was saved to history only.`);
+        if (result.prs?.length) onRecords(result.prs, op.body.user_id);
       }
     }
   })().finally(() => { flushing = null; SyncQueue.inFlight = null; });
