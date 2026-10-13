@@ -873,32 +873,3 @@ NEW += [
     X("Shoulder Dislocates (Band)", eq="Resistance Band", pat="Mobility Drill", p="Front Delts, Rotator Cuff", s="Mid Chest, Lats", metrics="RX",
       how="Hold a band or stick wide in front of your hips. With straight arms, lift it overhead and behind you, then bring it back. Narrow the grip over time."),
 ]
-
-# Difficulty: seed_library.default_level() rates every exercise from its equipment and patterns (machines, cables,
-# stretches and isolation work -> beginner; free-weight compounds, power and skill work -> intermediate). These
-# override it, mostly calisthenics skills and beginner-friendly free-weight moves.
-LEVEL_OVERRIDES = {
-    "advanced": [
-        "Advanced Shrimp Squat", "Pistol Squat", "Archer Push-Up", "Pseudo Planche Push-Up", "Muscle-Up",
-        "Nordic Curl", "Dip (Rings)", "Pull-Up (Weighted)", "Chin-Up (Weighted)", "Handstand Push-Up (Wall)",
-        "Freestanding Handstand", "Wall Handstand Shoulder Taps", "One-Leg L-sit", "L-sit", "Straddle L-sit",
-        "Ab Rollout (Rings)", "Power Clean (Barbell)", "Snatch (Kettlebell)", "Turkish Get-Up (Kettlebell)", "Toes-to-Bar",
-    ],
-    "intermediate": [
-        "Intermediate Shrimp Squat", "Beginner Shrimp Squat", "Box Pistol Squat", "Cossack Squat", "Glute-Ham Raise",
-        "Nordic Curl (Band-Assisted)", "Nordic Curl Negative (Band-Assisted)", "Pull-Up", "Chin-Up", "Parallel Bar Dip",
-        "Dip (Weighted)", "Diamond Push-Up", "Diamond Push-Up (Weighted)", "Decline Push-Up", "Push-Up (Rings)",
-        "Push-Up (Weighted)", "Inverted Row (Rings)", "Hanging Leg Raise", "V-Up", "Copenhagen Plank",
-        "Ab Rollout (Ab Wheel)", "Ab Rollout (Barbell)", "Body Saw (TRX)", "Pike Compression", "Front Split",
-        "Neck Curl (Plate)", "Neck Extension (Plate)",
-    ],
-    "beginner": [
-        "Foot-Supported L-sit", "One-Leg Foot-Supported L-sit", "Parallel Bar Support Hold", "Dead Hang", "Arch Hang",
-        "Wall Plank", "Inverted Row (Bar)", "Goblet Squat (Dumbbell)", "Goblet Squat (Kettlebell)", "Bench Press (Dumbbell)",
-        "Floor Press (Dumbbell)", "Shoulder Press (Dumbbell)", "Chest-Supported Row (Dumbbell)", "Single-Arm Row (Dumbbell)",
-        "Single-Arm Row (Kettlebell)", "Farmer's Carry (Dumbbell)", "Farmer's Carry (Kettlebell)", "Suitcase Carry (Dumbbell)",
-        "Suitcase Carry (Kettlebell)", "Hip Thrust (Dumbbell)", "Romanian Deadlift (Dumbbell)", "Romanian Deadlift (Kettlebell)",
-        "Deadlift (Dumbbell)", "Reverse Lunge (Dumbbell)", "Walking Lunge (Dumbbell)", "Step-Up (Dumbbell)",
-        "Split Squat (Dumbbell)", "Jump Squat", "Burpee", "Medicine Ball Slam",
-    ],
-}

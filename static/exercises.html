@@ -124,13 +124,6 @@
         e.currentTarget.classList.toggle('on', selected.has(metric));
       },
     }, metric)));
-    let level = exercise.level || '';
-    const levelChips = el('div', { class: 'chips' });
-    const drawLevel = () => mount(levelChips, LEVELS.map(value => el('span', {
-      class: `chip ${level === value ? 'on' : ''}`,
-      onclick: () => { level = level === value ? '' : value; drawLevel(); },
-    }, levelLabel(value))));
-    drawLevel();
     const muscles = musclePicker(exercise, catalog);
     const equipment = chipPicker('Equipment (optional)', bySection(catalog.equipment, 'type', catalog.equipmentTypes), exercise.equipment_ids);
     const patterns = chipPicker('Movement Patterns (optional)', bySection(catalog.patterns, 'kind', catalog.patternKinds), exercise.movement_pattern_ids);
@@ -141,14 +134,13 @@
         el('div', { class: 'field' }, el('label', {}, 'Instructions*'), instructions),
         el('div', { class: 'field' }, el('label', {}, 'Video URL (optional)'), video),
         el('div', { class: 'field' }, el('label', {}, 'Metrics'), chips),
-        el('div', { class: 'field' }, el('label', {}, 'Difficulty'), levelChips),
         muscles.node,
         equipment.node,
         patterns.node,
         progressions.node,
       ),
       read() {
-        const body = { name: name.value.trim(), instructions: instructions.value, video_url: video.value.trim(), metrics: POSSIBLE_METRICS.filter(m => selected.has(m)), level, ...muscles.read(),
+        const body = { name: name.value.trim(), instructions: instructions.value, video_url: video.value.trim(), metrics: POSSIBLE_METRICS.filter(m => selected.has(m)), ...muscles.read(),
           equipment_ids: equipment.read(), movement_pattern_ids: patterns.read(), progression_ids: progressions.read() };
         if (!body.name || !body.instructions.trim()) throw new Error('Please fill in all required fields');
         return body;
@@ -157,8 +149,6 @@
         name.value = instructions.value = video.value = '';
         selected.clear();
         chips.querySelectorAll('.chip').forEach(chip => chip.classList.remove('on'));
-        level = '';
-        drawLevel();
         muscles.reset();
         equipment.reset();
         patterns.reset();
@@ -208,7 +198,6 @@
       exercise.metrics.length && el('p', { class: 'muted' }, `Metrics: ${exercise.metrics.join(', ')}`),
       primary && el('p', { class: 'muted' }, `Primary: ${primary}`),
       secondary && el('p', { class: 'muted' }, `Secondary: ${secondary}`),
-      exercise.level && el('p', { class: 'muted' }, `Level: ${levelLabel(exercise.level)}`),
       line('Equipment', namesOf(catalog.equipment, exercise.equipment_ids)),
       line('Patterns', namesOf(catalog.patterns, exercise.movement_pattern_ids)),
       line('Easier', catalog.exercises.filter(item => (item.progression_ids || []).includes(exercise.id)).map(item => item.name)),
@@ -259,7 +248,6 @@
     const byMuscleGroup = filterSelect('Any muscle group', [{ label: 'Muscle groups', items: catalog.groups }]);
     const byEquipment = filterSelect('Any equipment', bySection(catalog.equipment, 'type', catalog.equipmentTypes));
     const byPattern = filterSelect('Any movement pattern', bySection(catalog.patterns, 'kind', catalog.patternKinds));
-    const byLevel = filterSelect('Any level', [{ label: 'Difficulty', items: LEVELS.map(value => ({ id: value, name: levelLabel(value) })) }]);
     const cards = [];
 
     function applyFilter() {
@@ -269,8 +257,7 @@
         (!query || card.dataset.name.includes(query))
         && has(exercise, ['primary_group_ids', 'secondary_group_ids'], byMuscleGroup.value)
         && has(exercise, ['equipment_ids'], byEquipment.value)
-        && has(exercise, ['movement_pattern_ids'], byPattern.value)
-        && (!byLevel.value || exercise.level === byLevel.value))));
+        && has(exercise, ['movement_pattern_ids'], byPattern.value))));
     }
 
     const create = exerciseForm({}, catalog);
@@ -290,7 +277,7 @@
       ),
       el('h2', {}, 'All Exercises'),
       el('div', { class: 'field' }, filter),
-      el('div', { class: 'filters field' }, byMuscleGroup, byEquipment, byPattern, byLevel),
+      el('div', { class: 'filters field' }, byMuscleGroup, byEquipment, byPattern),
       list,
     );
 
@@ -299,8 +286,7 @@
       const drawStatus = () => mount(status, exercise.owner && el('span', { class: 'tag' }, exercise.pending ? 'Requested' : 'Mine'));
       drawStatus();
       const card = el('details', { class: 'card', dataset: { name: exercise.name.toLowerCase() } },
-        el('summary', {}, el('span', {}, exercise.name), status, exercise.level ? el('span', { class: `tag level-${exercise.level}` }, levelLabel(exercise.level)) : null,
-          exercise.metrics.length ? el('span', { class: 'tag' }, exercise.metrics.join(', ')) : null));
+        el('summary', {}, el('span', {}, exercise.name), status, exercise.metrics.length ? el('span', { class: 'tag' }, exercise.metrics.join(', ')) : null));
       // Editors are built on first open; there are 100+ exercises.
       card.addEventListener('toggle', () => {
         if (!card.open || card.childElementCount > 1) return;

@@ -13,19 +13,17 @@
 <script src="/static/common.js"></script>
 <script src="/static/library-ui.js"></script>
 <script>
-  // A coach sets each client's level and equipment; workout suggestions are tailored to them.
+  // A coach sets each client's equipment; template suggestions only use what they have.
   function profileEditor(client, library) {
-    const level = levelSelect(client.level);
     const equipment = equipmentPicker(library, client.equipment_ids);
-    const summary = () => `${levelLabel(client.level)} · ${client.equipment_ids.length ? `${client.equipment_ids.length} equipment` : 'equipment not set'}`;
+    const summary = () => client.equipment_ids.length ? `${client.equipment_ids.length} items` : 'not set';
     const tag = el('span', { class: 'tag' }, summary());
     return el('details', { class: 'card' },
-      el('summary', {}, el('span', {}, 'Level & equipment'), tag),
-      el('div', { class: 'field' }, el('label', {}, 'Difficulty level'), level),
+      el('summary', {}, el('span', {}, 'Equipment'), tag),
       equipment.node,
       el('p', { class: 'muted field' }, 'No equipment selected means suggestions are not filtered by equipment.'),
       el('div', { class: 'buttons' }, el('button', { class: 'primary', onclick: e => withBusy(e.currentTarget, async () => {
-        const body = { level: level.value, equipment_ids: equipment.read() };
+        const body = { equipment_ids: equipment.read() };
         await api('PUT', `/api/clients/${encodeURIComponent(client.username)}/profile`, body);
         Object.assign(client, body);
         tag.textContent = summary();

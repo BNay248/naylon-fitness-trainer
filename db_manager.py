@@ -21,7 +21,6 @@ ADDED_GROUP_FIELDS = ["added_primary_group_ids", "added_secondary_group_ids"]
 LINK_FIELDS = ["equipment_ids", "movement_pattern_ids", "progression_ids"]
 EQUIPMENT_TYPES = ["Free Weight", "Machine", "Cable", "Bodyweight", "Accessory", "Cardio"]
 PATTERN_KINDS = ["Compound", "Isolation", "Core", "Power", "Skill", "Mobility", "Conditioning"]
-EXERCISE_LEVELS = ["beginner", "intermediate", "advanced"]
 
 
 def unique(values) -> List[str]:

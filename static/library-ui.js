@@ -1,8 +1,5 @@
 // Shared pickers for the exercise library (exercise form, client profiles, templates).
 
-const LEVELS = ['beginner', 'intermediate', 'advanced'];
-const levelLabel = level => level ? level[0].toUpperCase() + level.slice(1) : '';
-
 // A collapsible set of on/off chips in labelled sections ([{label, items}]); returns {node, read(), set(ids), reset()}.
 // onChange(ids) runs after every toggle.
 function chipPicker(title, sections, selectedIds, onChange = () => {}) {
@@ -40,9 +37,6 @@ const bySection = (items, key, order) => order.map(label => ({ label, items: ite
 // Equipment picker sectioned by type, for a client's training profile.
 const equipmentPicker = (library, selectedIds, title = 'Equipment') =>
   chipPicker(title, bySection(library.equipment, 'type', library.equipment_types), selectedIds);
-
-// Difficulty level <select>.
-const levelSelect = current => el('select', {}, LEVELS.map(level => el('option', { value: level, selected: level === current }, levelLabel(level))));
 
 // Client-side mirror of the server's matches_rules: AND across rule keys, OR within one; an empty key doesn't
 // constrain; equipment means "uses only these". Needs exercise.pattern_kinds (from /api/exercises).

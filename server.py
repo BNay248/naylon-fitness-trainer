@@ -11,7 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from jose import JWTError, jwt
 from pydantic import BaseModel
 
-from db_manager import (ADDED_GROUP_FIELDS, EQUIPMENT_TYPES, EXERCISE_LEVELS, GROUP_FIELDS, LINK_FIELDS, MUSCLE_FIELDS,
+from db_manager import (ADDED_GROUP_FIELDS, EQUIPMENT_TYPES, GROUP_FIELDS, LINK_FIELDS, MUSCLE_FIELDS,
                         PATTERN_KINDS, TrainerDB, unique, with_groups)
 
 app = FastAPI()
@@ -317,7 +317,6 @@ def serialize_exercise(exercise: Dict) -> Dict:
         "metrics": exercise.get("metrics") or [],
         "owner": exercise.get("owner"),
         "pending": bool(exercise.get("pending")),
-        "level": exercise.get("level", ""),
         **{field: exercise.get(field) or [] for field in MUSCLE_FIELDS + ADDED_GROUP_FIELDS + GROUP_FIELDS + LINK_FIELDS},
     }
 
@@ -400,8 +399,8 @@ def me(user: Dict = Depends(current_user)):
 
 
 def training_profile(user: Dict) -> Dict:
-    """What suggestions are tailored to: the client's difficulty level (set by a coach) and their equipment."""
-    return {"level": user.get("level") or "beginner", "equipment_ids": user.get("equipment_ids") or []}
+    """What suggestions are tailored to: the equipment the client has."""
+    return {"equipment_ids": user.get("equipment_ids") or []}
 
 
 class EquipmentRequest(BaseModel):
@@ -439,7 +438,6 @@ class ExerciseRequest(BaseModel):
     equipment_ids: List[str] = []
     movement_pattern_ids: List[str] = []
     progression_ids: List[str] = []           # the next-harder exercises
-    level: str = ""                           # one of EXERCISE_LEVELS, or "" for unrated
 
 
 def ids_in(collection: str) -> set:
@@ -491,7 +489,6 @@ def exercise_fields(req: ExerciseRequest, owner: Optional[str], exercise_id: Opt
         "instructions": req.instructions,
         "video_url": req.video_url.strip(),
         "metrics": [metric for metric in POSSIBLE_METRICS if metric in req.metrics],
-        "level": req.level if req.level in EXERCISE_LEVELS else "",
         **muscle_fields(req),
         **link_fields(req, owner, exercise_id),
     }
@@ -1125,25 +1122,16 @@ def list_clients(user: Dict = Depends(coach_user)):
 
 
 class ClientProfileRequest(BaseModel):
-    level: Optional[str] = None
-    equipment_ids: Optional[List[str]] = None
+    equipment_ids: List[str]
 
 
 @app.put("/api/clients/{username}/profile")
 def set_client_profile(username: str, req: ClientProfileRequest, user: Dict = Depends(coach_user)):
-    """A coach sets one of their clients' level and/or equipment."""
+    """A coach sets one of their clients' equipment."""
     if username not in (user.get("clients") or []):
         raise HTTPException(status_code=404, detail="Client not found")
-    updates = {}
-    if req.level is not None:
-        if req.level not in EXERCISE_LEVELS:
-            raise HTTPException(status_code=400, detail="Please choose a level")
-        updates["level"] = req.level
-    if req.equipment_ids is not None:
-        equipment = ids_in("equipment")
-        updates["equipment_ids"] = unique(i for i in req.equipment_ids if i in equipment)
-    if updates:
-        db.update_user(username, updates)
+    equipment = ids_in("equipment")
+    db.update_user(username, {"equipment_ids": unique(i for i in req.equipment_ids if i in equipment)})
     return {"ok": True}
 
 

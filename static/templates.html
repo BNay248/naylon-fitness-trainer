@@ -249,7 +249,7 @@
     const mine = templates.filter(template => template.can_edit);
     mount(main,
       el('h1', {}, 'Templates'),
-      el('div', { class: 'info' }, 'A template is a recipe of slots. Clients fill each slot from suggestions that fit their level and equipment, then train it like a session.'),
+      el('div', { class: 'info' }, 'A template is a recipe of slots. Clients fill each slot from suggestions that fit their equipment, then train it like a session.'),
       el('details', { class: 'card', dataset: { key: 'create' }, open: open.has('create') },
         el('summary', {}, 'Create Template'),
         templateBuilder({ catalog, saveLabel: 'Create Template', onSave: async state => {
