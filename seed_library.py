@@ -2,7 +2,7 @@
 
     python seed_library.py [mongodb-uri] [--existing-only] [--dry-run]
 
-Everything is matched by name, so it is safe to re-run: library items are added or updated, exercises in
+Everything is matched by name (after applying RENAMES), so it is safe to re-run: library items are added or updated, exercises in
 EXISTING get their links set, and exercises in NEW are added (or, if one with that name already exists, only
 their links are set). --existing-only skips adding NEW exercises; links to them are filled in on a later run.
 """
@@ -10,7 +10,7 @@ import sys
 from typing import Dict, List
 
 from db_manager import ADDED_GROUP_FIELDS, EQUIPMENT_TYPES, PATTERN_KINDS, TrainerDB, with_groups
-from library_data import EQUIPMENT, EXISTING, MOVEMENT_PATTERNS, MUSCLE_GROUPS, NEW
+from library_data import EQUIPMENT, EXISTING, MOVEMENT_PATTERNS, MUSCLE_GROUPS, NEW, RENAMES
 
 METRIC_CODES = {"R": "Reps", "W": "Weight", "D": "Duration", "C": "Calories", "X": "Resistance", "M": "Distance"}
 METRIC_ORDER = ["Reps", "Weight", "Duration", "Calories", "Resistance", "Distance"]
@@ -33,6 +33,8 @@ def validate() -> List[str]:
         problems += [f"{item['name']}: bad metric code '{code}'" for code in item["metrics"] if code not in METRIC_CODES]
         problems += [f"{item['name']}: muscle both primary and secondary" for _ in [0] if set(item["primary"]) & set(item["secondary"])]
     problems += [f"{item['name']}: new exercise without instructions" for item in NEW if not item["instructions"]]
+    # An old name may be reused for a new exercise: a rename is skipped once its target exists.
+    problems += [f"rename target not defined: {new}" for new in RENAMES.values() if new not in exercises]
     return problems
 
 
@@ -53,10 +55,45 @@ def upsert_items(db: TrainerDB, collection: str, rows: List[Dict], dry_run: bool
     return ids
 
 
+def rename_refs(node, names: Dict[str, str]) -> bool:
+    """Renames every {exercise_id, name} reference (planned exercises, swaps, swapped_from) in place."""
+    changed = False
+    if isinstance(node, dict):
+        if node.get("exercise_id") in names and node.get("name") != names[node["exercise_id"]]:
+            node["name"] = names[node["exercise_id"]]
+            changed = True
+        for value in node.values():
+            changed = rename_refs(value, names) or changed
+    elif isinstance(node, list):
+        for value in node:
+            changed = rename_refs(value, names) or changed
+    return changed
+
+
+def apply_renames(db: TrainerDB, dry_run: bool) -> None:
+    """Renames global exercises per RENAMES. Everything links by id; the name copies kept in sessions and
+    workout logs are updated too so they show the new name."""
+    by_name = {item["name"].lower(): item for item in db.get_visible_exercises([])}
+    renamed = {}
+    for old, new in RENAMES.items():
+        exercise = by_name.get(old.lower())
+        if exercise and new.lower() not in by_name:
+            renamed[str(exercise["_id"])] = new
+            print(f"rename: {old} -> {new}")
+            if not dry_run:
+                db.update_exercise(str(exercise["_id"]), {"name": new})
+    if renamed and not dry_run:
+        for collection in ("sessions", "workout_logs"):
+            for doc in db.db[collection].find():
+                if rename_refs(doc.get("supersets"), renamed):
+                    db.db[collection].update_one({"_id": doc["_id"]}, {"$set": {"supersets": doc["supersets"]}})
+
+
 def seed(db: TrainerDB, existing_only: bool = False, dry_run: bool = False) -> None:
     problems = validate()
     if problems:
         raise SystemExit("Library data has problems:\n  " + "\n  ".join(problems))
+    apply_renames(db, dry_run)
 
     group_ids = upsert_items(db, "muscle_groups", [{"name": name, "description": text} for name, (text, _) in MUSCLE_GROUPS.items()], dry_run)
     muscle_ids = upsert_items(db, "muscles", [{"name": name, "description": text, "group_id": group_ids[group]}
