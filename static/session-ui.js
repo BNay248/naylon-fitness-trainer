@@ -543,9 +543,9 @@ function sessionCard(session, { catalog, actions, drafts, openKeys, clients = nu
           };
           return exerciseLog(exercise, superset.repeats, saveDraft, {
             picker: swapping?.at === at ? swapping : null,
-            // From the exercise (from = null) every round is picked; from a round, that round and the ones after it.
-            open: from => {
-              swapping = { at, from, rounds: new Set(Array.from({ length: superset.repeats }, (_, round) => round).filter(round => round >= (from ?? 0))) };
+            // Every round starts picked; the picker's round chips choose which ones to swap.
+            open: () => {
+              swapping = { at, rounds: new Set(Array.from({ length: superset.repeats }, (_, round) => round)) };
               render();
             },
             close: () => { swapping = null; render(); },
@@ -559,7 +559,7 @@ function sessionCard(session, { catalog, actions, drafts, openKeys, clients = nu
   }
 
   // One block per exercise: name/note/video once, then a row of inputs for each round.
-  // Any round can be swapped for another exercise for this workout only; the exercise's Swap button swaps them all.
+  // Rounds can be swapped for another exercise for this workout only: the exercise's Swap button picks which rounds.
   function exerciseLog(exercise, rounds, onEdit, swap) {
     const swappedRounds = exercise.instances.map((instance, round) => instance.swap ? round : null).filter(round => round != null);
     const substitutes = [...new Map(swappedRounds.map(round => exercise.instances[round].swap).map(item => [item.exercise_id, item])).values()];
@@ -570,9 +570,9 @@ function sessionCard(session, { catalog, actions, drafts, openKeys, clients = nu
       el('div', { class: 'row' },
         el('div', { class: 'name grow' }, exercise.name || 'Untitled', swappedRounds.length > 0 && el('span', { class: 'tag swapped' }, 'Swapped')),
         !swap.picker && swappedRounds.length > 0 && el('button', { type: 'button', class: 'small', onclick: () => swap.undo(swappedRounds) }, 'Undo swaps'),
-        !swap.picker && el('button', { type: 'button', class: 'small', onclick: () => swap.open(null) }, 'Swap'),
+        !swap.picker && el('button', { type: 'button', class: 'small', onclick: () => swap.open() }, 'Swap'),
       ),
-      swap.picker && swap.picker.from == null && swapPicker(exercise, rounds, swap),
+      swap.picker && swapPicker(exercise, rounds, swap),
       exercise.note && el('div', { class: 'exercise-note' }, exercise.note),
       target && el('div', { class: 'muted' }, `Target: ${target}`),
       videos.map(([name, video]) => el('div', { class: 'video' }, el('iframe', { src: video, allowfullscreen: true, loading: 'lazy', title: name }))),
@@ -630,11 +630,8 @@ function sessionCard(session, { catalog, actions, drafts, openKeys, clients = nu
     return el('div', { class: 'round-row' },
       el('div', { class: 'row' },
         el('div', { class: 'round-title grow' }, `Round ${round + 1}`, instance.swap && el('span', { class: 'swapped-name' }, ` · ${instance.swap.name} instead`)),
-        !swap.picker && (instance.swap
-          ? el('button', { type: 'button', class: 'small', onclick: () => swap.undo([round]) }, 'Undo')
-          : rounds > 1 && el('button', { type: 'button', class: 'small', onclick: () => swap.open(round) }, 'Swap')),
+        !swap.picker && instance.swap && el('button', { type: 'button', class: 'small', onclick: () => swap.undo([round]) }, 'Undo'),
       ),
-      swap.picker?.from === round && swapPicker(exercise, rounds, swap),
       metrics.length
         ? metricGrid(metrics.map(metric => el('div', {},
           el('label', {}, metric),
