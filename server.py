@@ -1,11 +1,9 @@
 import math
 import os
-import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 import bcrypt
-import yaml
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -20,7 +18,12 @@ db = TrainerDB()
 db.ensure_indexes()
 
 ALGORITHM = "HS256"
-COOKIE_NAME = "trainer_session"
+# Single sign-on with the nutrition tracker: both apps share this cookie, its secret and the users collection.
+# COOKIE_DOMAIN (e.g. chowmeinframe.com) scopes it to every subdomain; unset, it stays on the current host (local dev).
+COOKIE_NAME = "nfp_session"
+LEGACY_COOKIES = ["trainer_session"]
+COOKIE_DOMAIN = os.environ.get("COOKIE_DOMAIN") or None
+TRACKER_URL = os.environ.get("TRACKER_URL", "")
 TOKEN_DAYS = 30
 ADMINS = {name.strip() for name in os.environ.get("TRAINER_ADMINS", "brad").split(",") if name.strip()}
 POSSIBLE_METRICS = ["Reps", "Weight", "Duration", "Calories", "Resistance", "Distance"]
@@ -28,23 +31,10 @@ MAX_REPEATS = 20
 MAX_NOTE = 500
 
 
-def load_secret() -> str:
-    """JWT secret: env var, else the cookie key from the Streamlit config.yaml, else a generated file."""
-    if os.environ.get("JWT_SECRET"):
-        return os.environ["JWT_SECRET"]
-    if os.path.exists("config.yaml"):
-        with open("config.yaml") as file:
-            key = ((yaml.safe_load(file) or {}).get("cookie") or {}).get("key")
-        if key:
-            return key
-    if not os.path.exists(".jwt_secret"):
-        with open(".jwt_secret", "w") as file:
-            file.write(secrets.token_hex(32))
-    with open(".jwt_secret") as file:
-        return file.read().strip()
-
-
-SECRET = load_secret()
+# Signs login cookies (shared with the tracker), so it must be private: required from the environment, never defaulted.
+SECRET = os.environ.get("JWT_SECRET", "")
+if len(SECRET) < 32:
+    raise RuntimeError("Set JWT_SECRET to a random value of at least 32 characters (e.g. `python3 -c \"import secrets; print(secrets.token_hex(32))\"`)")
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
@@ -67,7 +57,8 @@ def create_token(username: str) -> str:
 
 
 def set_session_cookie(response: Response, username: str) -> None:
-    response.set_cookie(COOKIE_NAME, create_token(username), httponly=True, max_age=86400 * TOKEN_DAYS, samesite="lax")
+    response.set_cookie(COOKIE_NAME, create_token(username), httponly=True, max_age=86400 * TOKEN_DAYS, samesite="lax",
+                        domain=COOKIE_DOMAIN, secure=bool(COOKIE_DOMAIN))
 
 
 def current_user(request: Request) -> Dict:
@@ -387,7 +378,9 @@ def register(req: RegisterRequest, response: Response):
 
 @app.post("/api/logout")
 def logout(response: Response):
-    response.delete_cookie(COOKIE_NAME)
+    response.delete_cookie(COOKIE_NAME, domain=COOKIE_DOMAIN, secure=bool(COOKIE_DOMAIN), httponly=True, samesite="lax")
+    for name in LEGACY_COOKIES:
+        response.delete_cookie(name)
     return {"ok": True}
 
 
@@ -399,6 +392,7 @@ def me(user: Dict = Depends(current_user)):
         "email": user.get("email", ""),
         "role": user.get("role", "client"),
         "is_admin": user["username"] in ADMINS,
+        "tracker_url": TRACKER_URL,
     }
 
 

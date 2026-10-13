@@ -91,6 +91,7 @@ function renderNav(active) {
     ['coaches', '/coaches', 'Coaches'],
     ['profile', '/profile', 'Profile'],
     ME.is_admin && ['admin', '/admin', 'Admin'],
+    ME.tracker_url && ['nutrition', ME.tracker_url, 'Nutrition'],
   ].filter(Boolean);
   // On narrow screens the links collapse behind the menu button instead of wrapping.
   const toggle = el('button', { type: 'button', class: 'nav-toggle', 'aria-label': 'Menu', 'aria-expanded': 'false', onclick: () => {
