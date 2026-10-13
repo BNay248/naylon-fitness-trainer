@@ -31,9 +31,9 @@ function targetText(exercise) {
 }
 
 // Same comparison the server uses to decide whether a logged workout still fits the session.
-// (Swaps are per round, so a logged entry keeps the planned exercise's name.)
+// (Swaps are per round, so a logged entry keeps the planned exercise's id.)
 function structureKey(supersets) {
-  return JSON.stringify(supersets.map(superset => [roundCount(superset), superset.exercises.map(exercise => exercise.name)]));
+  return JSON.stringify(supersets.map(superset => [roundCount(superset), superset.exercises.map(exercise => exercise.exercise_id)]));
 }
 
 // Client-side mirror of the server's with_instances: a swapped round keeps its old values.
@@ -46,16 +46,16 @@ function withLoggedValues(supersets, logged) {
   }) }));
 }
 
-// Client-side mirror of the server's get_latest_exercise_log for one logged workout: the rounds done as each exercise.
+// Client-side mirror of the server's get_latest_exercise_log for one logged workout: the rounds done as each exercise, by id.
 function roundsByExercise(supersets) {
   const found = {};
   supersets.forEach(superset => superset.exercises.forEach(exercise => {
     const here = {};
     exercise.instances.forEach(instance => {
-      const name = instance.swap?.name || exercise.name;
-      (here[name] = here[name] || []).push({ metrics: clone(instance.metrics) });
+      const id = instance.swap?.exercise_id || exercise.exercise_id;
+      (here[id] = here[id] || []).push({ metrics: clone(instance.metrics) });
     });
-    Object.entries(here).forEach(([name, instances]) => { if (!found[name]) found[name] = instances; });
+    Object.entries(here).forEach(([id, instances]) => { if (!found[id]) found[id] = instances; });
   }));
   return found;
 }
@@ -66,7 +66,7 @@ function normalizeStructure(supersets, catalog) {
     const rounds = roundCount(superset);
     const exercises = superset.exercises.map(raw => {
       // Exercises outside this user's catalog (an athlete's personal ones, seen by their coach) are kept as-is.
-      const exercise = catalog.byId[raw.exercise_id] || catalog.byName[raw.name]
+      const exercise = catalog.byId[raw.exercise_id]
         || (raw.exercise_id && raw.name ? { id: raw.exercise_id, name: raw.name, metrics: raw.metrics || [] } : null);
       if (!exercise) return null;
       return {
@@ -92,7 +92,7 @@ function youtubeEmbed(value) {
 }
 
 function exerciseVideo(exercise, catalog) {
-  const details = catalog.byId[exercise.exercise_id] || catalog.byName[exercise.name];
+  const details = catalog.byId[exercise.exercise_id];
   if (!details) return null;
   return youtubeEmbed(details.video_url) || youtubeEmbed(details.instructions);
 }
@@ -101,7 +101,6 @@ function makeCatalog(exercises) {
   return {
     list: exercises,
     byId: Object.fromEntries(exercises.map(item => [item.id, item])),
-    byName: Object.fromEntries(exercises.map(item => [item.name, item])),
   };
 }
 
@@ -193,8 +192,7 @@ function sessionBuilder({ catalog, initial, saveLabel, onSave, onCancel, clients
   const root = el('div', { class: 'builder' });
 
   function exerciseSelect(exercise) {
-    // Legacy rows may only have a name; match it to the catalog.
-    const current = catalog.byId[exercise.exercise_id] || catalog.byName[exercise.name];
+    const current = catalog.byId[exercise.exercise_id];
     // Not in this user's catalog (e.g. a client's personal exercise); keep it selectable so saving doesn't drop it.
     const outside = !current && exercise.exercise_id && exercise.name
       ? { id: exercise.exercise_id, name: exercise.name, metrics: exercise.metrics || [] } : null;
@@ -295,7 +293,7 @@ function sessionBuilder({ catalog, initial, saveLabel, onSave, onCancel, clients
 // A swapped round carries its substitute's previous values (fetched when swapping), since the session doesn't list it.
 function previousValues(session, exercise, round) {
   const swap = (exercise.instances || [])[round]?.swap;
-  return roundValues(swap ? exercise.instances[round].previous : session.previous?.[exercise.name], swap ? swap.metrics : exercise.metrics, round);
+  return roundValues(swap ? exercise.instances[round].previous : session.previous?.[exercise.exercise_id], swap ? swap.metrics : exercise.metrics, round);
 }
 
 function roundValues(previous, metrics, round) {
@@ -522,7 +520,7 @@ function sessionCard(session, { catalog, actions, drafts, openKeys, clients = nu
   // Any round can be swapped for another exercise for this workout only; the exercise's Swap button swaps them all.
   function exerciseLog(exercise, rounds, onEdit, swap) {
     const swappedRounds = exercise.instances.map((instance, round) => instance.swap ? round : null).filter(round => round != null);
-    const substitutes = [...new Map(swappedRounds.map(round => exercise.instances[round].swap).map(item => [item.name, item])).values()];
+    const substitutes = [...new Map(swappedRounds.map(round => exercise.instances[round].swap).map(item => [item.exercise_id, item])).values()];
     const videos = showVideos ? [exercise, ...substitutes]
       .map(item => [item.name, exerciseVideo(item, catalog)]).filter(([, video]) => video) : [];
     const target = targetText(exercise);
@@ -545,7 +543,7 @@ function sessionCard(session, { catalog, actions, drafts, openKeys, clients = nu
     const picked = swap.picker.rounds;
     const select = el('select', {},
       el('option', { value: '' }, 'Do instead…'),
-      catalog.list.filter(item => item.name !== exercise.name).map(item => el('option', { value: item.id }, item.name)),
+      catalog.list.filter(item => item.id !== exercise.exercise_id).map(item => el('option', { value: item.id }, item.name)),
     );
     const chips = rounds > 1 && el('div', { class: 'chips field' }, Array.from({ length: rounds }, (_, round) => {
       const chip = el('span', { class: `chip${picked.has(round) ? ' on' : ''}`, onclick: () => {
@@ -560,7 +558,7 @@ function sessionCard(session, { catalog, actions, drafts, openKeys, clients = nu
       if (!picked.size) return toast('Pick at least one round', 'error');
       let previous = null;
       try {
-        previous = await api('GET', `/api/previous?name=${encodeURIComponent(chosen.name)}&athlete=${encodeURIComponent(session.user_id)}`);
+        previous = await api('GET', `/api/previous?exercise_id=${encodeURIComponent(chosen.id)}&athlete=${encodeURIComponent(session.user_id)}`);
       } catch (err) {
         if (err.status !== 0) throw err; // offline: swap anyway, just without previous values
       }

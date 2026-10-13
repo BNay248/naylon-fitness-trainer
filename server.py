@@ -172,13 +172,12 @@ def clean_structure(raw_supersets: Any, usernames: List[str], existing: Optional
     catalog = {str(item["_id"]): item for item in db.get_visible_exercises(usernames)}
     kept_ids = {exercise.get("exercise_id") for superset in existing or [] for exercise in superset.get("exercises", [])}
     catalog.update({str(item["_id"]): item for item in db.get_exercises_by_ids([i for i in kept_ids if i and i not in catalog])})
-    by_name = {item.get("name"): item for item in catalog.values()}
     supersets = []
     for raw in raw_supersets if isinstance(raw_supersets, list) else []:
         repeats = clamp_repeats(raw.get("repeats"))
         exercises = []
         for raw_exercise in raw.get("exercises") or []:
-            exercise = catalog.get(str(raw_exercise.get("exercise_id") or "")) or by_name.get(raw_exercise.get("name"))
+            exercise = catalog.get(str(raw_exercise.get("exercise_id") or ""))
             if not exercise:
                 continue
             metrics = exercise.get("metrics") or []
@@ -227,13 +226,13 @@ def clean_snapshot(raw_supersets: Any) -> List[Dict]:
     return supersets
 
 
-def planned_name(exercise: Dict) -> Optional[str]:
+def planned_id(exercise: Dict) -> Optional[str]:
     """The session's exercise this entry stands for: an older whole-exercise swap still counts as the exercise it replaced."""
-    return (exercise.get("swapped_from") or {}).get("name") or exercise.get("name")
+    return (exercise.get("swapped_from") or {}).get("exercise_id") or exercise.get("exercise_id")
 
 
 def structure_signature(supersets: List[Dict]) -> List:
-    return [(superset.get("repeats"), [planned_name(exercise) for exercise in superset.get("exercises", [])]) for superset in supersets]
+    return [(superset.get("repeats"), [planned_id(exercise) for exercise in superset.get("exercises", [])]) for superset in supersets]
 
 
 def session_athletes(session: Dict) -> List[str]:
@@ -286,16 +285,17 @@ def without_values(supersets: List[Dict]) -> List[Dict]:
 
 
 def serialize_session(session: Dict, athlete: str, user: Dict, previous_cache: Dict, names: Dict[str, str]) -> Dict:
-    """One athlete's view of a session. Shared sessions carry no stored values; each athlete starts from their own previous ones."""
+    """One athlete's view of a session. Shared sessions carry no stored values; each athlete starts from their own previous ones.
+    `previous` is keyed by exercise id."""
     previous = {}
     for superset in session.get("supersets", []):
         for exercise in superset.get("exercises", []):
-            name = exercise.get("name")
-            key = (athlete, name)
+            exercise_id = exercise.get("exercise_id")
+            key = (athlete, exercise_id)
             if key not in previous_cache:
-                previous_cache[key] = db.get_latest_exercise_log(athlete, name)
+                previous_cache[key] = db.get_latest_exercise_log(athlete, exercise_id)
             if previous_cache[key]:
-                previous[name] = {"created_at": iso(previous_cache[key]["created_at"]), "instances": previous_cache[key]["instances"]}
+                previous[exercise_id] = {"created_at": iso(previous_cache[key]["created_at"]), "instances": previous_cache[key]["instances"]}
     shared = is_shared(session)
     others = [name for name in session_athletes(session) if name != athlete]
     return {
@@ -474,7 +474,7 @@ def exercise_fields(req: ExerciseRequest) -> Dict:
 
 
 def check_name_free(name: str, exercises: List[Dict], exclude_id: Optional[str] = None) -> None:
-    # Sessions and "previous values" match exercises by name, so names must not collide.
+    # Everything references exercises by id; unique names just keep the pickers unambiguous.
     if any(str(item["_id"]) != exclude_id and str(item.get("name", "")).lower() == name.lower() for item in exercises):
         raise HTTPException(status_code=409, detail=f"An exercise named \"{name}\" already exists")
 
@@ -859,12 +859,12 @@ def merged_instances(saved: List[Dict], logged: Dict) -> List[Dict]:
 
 
 @app.get("/api/previous")
-def previous_exercise_values(name: str, athlete: Optional[str] = None, user: Dict = Depends(current_user)):
+def previous_exercise_values(exercise_id: str, athlete: Optional[str] = None, user: Dict = Depends(current_user)):
     """An athlete's most recent logged values for one exercise (used to prefill a one-off swap)."""
     athlete = athlete or user["username"]
     if not can_act_for(user, athlete):
         raise HTTPException(status_code=404, detail="Athlete not found")
-    latest = db.get_latest_exercise_log(athlete, name)
+    latest = db.get_latest_exercise_log(athlete, exercise_id)
     return {"created_at": iso(latest["created_at"]), "instances": latest["instances"]} if latest else None
 
 
