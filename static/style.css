@@ -128,3 +128,5 @@ nav .nav-toggle { display: none; margin-left: auto; padding: 6px 12px; font-size
 .filters { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 8px; }
 .muscle-group > .chip { align-self: flex-start; }
 .toast.pr { border-left-color: #f5c542; }
+.tag.level-intermediate { color: var(--warn); border-color: var(--warn); }
+.tag.level-advanced { color: var(--danger); border-color: var(--danger); }

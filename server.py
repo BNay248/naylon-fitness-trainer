@@ -10,8 +10,8 @@ from fastapi.staticfiles import StaticFiles
 from jose import JWTError, jwt
 from pydantic import BaseModel
 
-from db_manager import (ADDED_GROUP_FIELDS, EQUIPMENT_TYPES, GROUP_FIELDS, LINK_FIELDS, MUSCLE_FIELDS, PATTERN_KINDS,
-                        TrainerDB, unique, with_groups)
+from db_manager import (ADDED_GROUP_FIELDS, EQUIPMENT_TYPES, EXERCISE_LEVELS, GROUP_FIELDS, LINK_FIELDS, MUSCLE_FIELDS,
+                        PATTERN_KINDS, TrainerDB, unique, with_groups)
 
 app = FastAPI()
 db = TrainerDB()
@@ -316,6 +316,7 @@ def serialize_exercise(exercise: Dict) -> Dict:
         "metrics": exercise.get("metrics") or [],
         "owner": exercise.get("owner"),
         "pending": bool(exercise.get("pending")),
+        "level": exercise.get("level", ""),
         **{field: exercise.get(field) or [] for field in MUSCLE_FIELDS + ADDED_GROUP_FIELDS + GROUP_FIELDS + LINK_FIELDS},
     }
 
@@ -420,6 +421,7 @@ class ExerciseRequest(BaseModel):
     equipment_ids: List[str] = []
     movement_pattern_ids: List[str] = []
     progression_ids: List[str] = []           # the next-harder exercises
+    level: str = ""                           # one of EXERCISE_LEVELS, or "" for unrated
 
 
 def ids_in(collection: str) -> set:
@@ -471,6 +473,7 @@ def exercise_fields(req: ExerciseRequest, owner: Optional[str], exercise_id: Opt
         "instructions": req.instructions,
         "video_url": req.video_url.strip(),
         "metrics": [metric for metric in POSSIBLE_METRICS if metric in req.metrics],
+        "level": req.level if req.level in EXERCISE_LEVELS else "",
         **muscle_fields(req),
         **link_fields(req, owner, exercise_id),
     }

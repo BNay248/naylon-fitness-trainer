@@ -1,4 +1,4 @@
-const CACHE_NAME = 'trainer-shell-v7';
+const CACHE_NAME = 'trainer-shell-v8';
 const PAGES = ['/', '/exercises', '/clients', '/coaches', '/profile', '/admin', '/library'];
 const CORE_ASSETS = [
   ...PAGES,

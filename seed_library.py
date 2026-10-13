@@ -9,11 +9,29 @@ their links are set). --existing-only skips adding NEW exercises; links to them 
 import sys
 from typing import Dict, List
 
-from db_manager import ADDED_GROUP_FIELDS, EQUIPMENT_TYPES, PATTERN_KINDS, TrainerDB, with_groups
-from library_data import EQUIPMENT, EXISTING, MOVEMENT_PATTERNS, MUSCLE_GROUPS, NEW, RENAMES
+from db_manager import ADDED_GROUP_FIELDS, EQUIPMENT_TYPES, EXERCISE_LEVELS, PATTERN_KINDS, TrainerDB, with_groups
+from library_data import EQUIPMENT, EXISTING, LEVEL_OVERRIDES, MOVEMENT_PATTERNS, MUSCLE_GROUPS, NEW, RENAMES
 
 METRIC_CODES = {"R": "Reps", "W": "Weight", "D": "Duration", "C": "Calories", "X": "Resistance", "M": "Distance"}
 METRIC_ORDER = ["Reps", "Weight", "Duration", "Calories", "Resistance", "Distance"]
+
+
+def default_level(item: Dict) -> str:
+    """Difficulty from equipment and patterns; LEVEL_OVERRIDES corrects the exceptions."""
+    for level, names in LEVEL_OVERRIDES.items():
+        if item["name"] in names:
+            return level
+    kinds = {kind for name, kind, _ in MOVEMENT_PATTERNS if name in item["patterns"]}
+    types = {kind for name, kind, _ in EQUIPMENT if name in item["equipment"]}
+    if kinds <= {"Mobility", "Conditioning"}:
+        return "beginner"
+    if kinds & {"Skill", "Power"}:
+        return "intermediate"
+    if types & {"Machine", "Cable"} and "Free Weight" not in types:
+        return "beginner"
+    if "Compound" in kinds and "Free Weight" in types:
+        return "intermediate"
+    return "beginner"
 
 
 def validate() -> List[str]:
@@ -33,6 +51,10 @@ def validate() -> List[str]:
         problems += [f"{item['name']}: bad metric code '{code}'" for code in item["metrics"] if code not in METRIC_CODES]
         problems += [f"{item['name']}: muscle both primary and secondary" for _ in [0] if set(item["primary"]) & set(item["secondary"])]
     problems += [f"{item['name']}: new exercise without instructions" for item in NEW if not item["instructions"]]
+    overridden = [name for names in LEVEL_OVERRIDES.values() for name in names]
+    problems += [f"bad level: {level}" for level in LEVEL_OVERRIDES if level not in EXERCISE_LEVELS]
+    problems += [f"level override for unknown exercise: {name}" for name in overridden if name not in exercises]
+    problems += [f"level overridden twice: {name}" for name in {n for n in overridden if overridden.count(n) > 1}]
     # An old name may be reused for a new exercise: a rename is skipped once its target exists.
     problems += [f"rename target not defined: {new}" for new in RENAMES.values() if new not in exercises]
     return problems
@@ -137,6 +159,7 @@ def seed(db: TrainerDB, existing_only: bool = False, dry_run: bool = False) -> N
             "equipment_ids": [equipment_ids[name] for name in item["equipment"]],
             "movement_pattern_ids": [pattern_ids[name] for name in item["patterns"]],
             "progression_ids": [str(other["_id"]) for other in progressions if "_id" in other],
+            "level": default_level(item),
         }
         if not dry_run:
             db.update_exercise(str(exercise["_id"]), updates)
