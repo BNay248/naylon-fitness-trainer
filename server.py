@@ -394,7 +394,24 @@ def me(user: Dict = Depends(current_user)):
         "role": user.get("role", "client"),
         "is_admin": user["username"] in ADMINS,
         "tracker_url": TRACKER_URL,
+        **training_profile(user),
     }
+
+
+def training_profile(user: Dict) -> Dict:
+    """What suggestions are tailored to: the client's difficulty level (set by a coach) and their equipment."""
+    return {"level": user.get("level") or "beginner", "equipment_ids": user.get("equipment_ids") or []}
+
+
+class EquipmentRequest(BaseModel):
+    equipment_ids: List[str]
+
+
+@app.put("/api/me/equipment")
+def set_my_equipment(req: EquipmentRequest, user: Dict = Depends(current_user)):
+    equipment = ids_in("equipment")
+    db.update_user(user["username"], {"equipment_ids": unique(i for i in req.equipment_ids if i in equipment)})
+    return {"ok": True}
 
 
 @app.post("/api/password")
@@ -951,11 +968,35 @@ def list_clients(user: Dict = Depends(coach_user)):
     excluded = {user["username"], *clients, *pending}
     candidates = [{"username": other["username"], "name": other.get("name", "")}
                   for other in db.get_all_users() if other.get("username") and other["username"] not in excluded]
+    profiles = db.get_users_by_usernames(clients)
     return {
-        "clients": display_names(clients),
+        "clients": [{**row, **training_profile(profiles.get(row["username"], {}))} for row in display_names(clients)],
         "pending": display_names(pending),
         "candidates": sorted(candidates, key=lambda item: item["name"].lower() or item["username"].lower()),
     }
+
+
+class ClientProfileRequest(BaseModel):
+    level: Optional[str] = None
+    equipment_ids: Optional[List[str]] = None
+
+
+@app.put("/api/clients/{username}/profile")
+def set_client_profile(username: str, req: ClientProfileRequest, user: Dict = Depends(coach_user)):
+    """A coach sets one of their clients' level and/or equipment."""
+    if username not in (user.get("clients") or []):
+        raise HTTPException(status_code=404, detail="Client not found")
+    updates = {}
+    if req.level is not None:
+        if req.level not in EXERCISE_LEVELS:
+            raise HTTPException(status_code=400, detail="Please choose a level")
+        updates["level"] = req.level
+    if req.equipment_ids is not None:
+        equipment = ids_in("equipment")
+        updates["equipment_ids"] = unique(i for i in req.equipment_ids if i in equipment)
+    if updates:
+        db.update_user(username, updates)
+    return {"ok": True}
 
 
 @app.post("/api/clients/{username}/request")

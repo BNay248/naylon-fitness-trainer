@@ -11,8 +11,34 @@
 <div class="container"></div>
 <div id="toasts"></div>
 <script src="/static/common.js"></script>
+<script src="/static/library-ui.js"></script>
 <script>
-  function render(main) {
+  // Quick ways to fill the equipment checklist; they only tick boxes (by equipment name).
+  const EQUIPMENT_PRESETS = {
+    'Bodyweight at home': ['Pull-Up Bar', 'Wall', 'Resistance Band'],
+    'Dumbbells at home': ['Dumbbell', 'Adjustable Bench', 'Resistance Band', 'Pull-Up Bar', 'Wall'],
+    'Full gym': null, // everything
+  };
+
+  function equipmentSection(library) {
+    const picker = equipmentPicker(library, ME.equipment_ids, 'My equipment');
+    const idsNamed = names => library.equipment.filter(item => !names || names.includes(item.name)).map(item => item.id);
+    return el('div', {},
+      el('p', { class: 'muted field' }, 'Workout suggestions only use equipment you have. Leave it empty to see everything.'),
+      el('div', { class: 'chips field' }, Object.entries(EQUIPMENT_PRESETS).map(([label, names]) =>
+        el('span', { class: 'chip', onclick: () => picker.set(idsNamed(names)) }, label)),
+        el('span', { class: 'chip', onclick: () => picker.reset() }, 'Clear')),
+      picker.node,
+      el('div', { class: 'buttons' }, el('button', { class: 'primary', onclick: e => withBusy(e.currentTarget, async () => {
+        const equipment_ids = picker.read();
+        await api('PUT', '/api/me/equipment', { equipment_ids });
+        ME.equipment_ids = equipment_ids;
+        toast('Equipment saved');
+      }) }, 'Save Equipment')));
+  }
+
+  async function render(main) {
+    const library = await api('GET', '/api/library');
     const current = el('input', { type: 'password', autocomplete: 'current-password' });
     const next = el('input', { type: 'password', autocomplete: 'new-password' });
     const confirm = el('input', { type: 'password', autocomplete: 'new-password' });
@@ -42,14 +68,17 @@
         el('div', { class: 'list-row' }, el('span', { class: 'grow muted' }, 'Username'), ME.username),
         el('div', { class: 'list-row' }, el('span', { class: 'grow muted' }, 'Email'), ME.email),
         el('div', { class: 'list-row' }, el('span', { class: 'grow muted' }, 'Role'), ME.role === 'coach' ? 'Coach' : 'Client'),
+        ME.role !== 'coach' && el('div', { class: 'list-row' }, el('span', { class: 'grow muted' }, 'Level (set by your coach)'), levelLabel(ME.level)),
       ),
       ME.role !== 'coach' && el('p', { class: 'muted field' }, COACH_CONTACT),
+      el('h2', {}, 'Training Equipment'),
+      equipmentSection(library),
       el('h2', {}, 'Change Password'),
       form,
     );
   }
 
-  boot('profile', render);
+  boot('profile', main => render(main).catch(err => mount(main, el('div', { class: 'error' }, err.message))));
 </script>
 </body>
 </html>

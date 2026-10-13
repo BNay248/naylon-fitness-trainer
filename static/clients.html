@@ -11,9 +11,30 @@
 <div class="container"></div>
 <div id="toasts"></div>
 <script src="/static/common.js"></script>
+<script src="/static/library-ui.js"></script>
 <script>
+  // A coach sets each client's level and equipment; workout suggestions are tailored to them.
+  function profileEditor(client, library) {
+    const level = levelSelect(client.level);
+    const equipment = equipmentPicker(library, client.equipment_ids);
+    const summary = () => `${levelLabel(client.level)} · ${client.equipment_ids.length ? `${client.equipment_ids.length} equipment` : 'equipment not set'}`;
+    const tag = el('span', { class: 'tag' }, summary());
+    return el('details', { class: 'card' },
+      el('summary', {}, el('span', {}, 'Level & equipment'), tag),
+      el('div', { class: 'field' }, el('label', {}, 'Difficulty level'), level),
+      equipment.node,
+      el('p', { class: 'muted field' }, 'No equipment selected means suggestions are not filtered by equipment.'),
+      el('div', { class: 'buttons' }, el('button', { class: 'primary', onclick: e => withBusy(e.currentTarget, async () => {
+        const body = { level: level.value, equipment_ids: equipment.read() };
+        await api('PUT', `/api/clients/${encodeURIComponent(client.username)}/profile`, body);
+        Object.assign(client, body);
+        tag.textContent = summary();
+        toast(`Saved for ${client.name || client.username}`);
+      }) }, 'Save')));
+  }
+
   async function render(main) {
-    const data = await api('GET', '/api/clients');
+    const [data, library] = await Promise.all([api('GET', '/api/clients'), api('GET', '/api/library')]);
     const refresh = () => render(main);
     const act = (method, path, message) => e => withBusy(e.currentTarget, async () => {
       await api(method, path);
@@ -42,10 +63,13 @@
 
       el('h2', {}, 'Your current clients'),
       data.clients.length
-        ? el('div', { class: 'card' }, data.clients.map(client => el('div', { class: 'list-row' },
-          el('div', { class: 'grow' }, el('strong', {}, client.name), ` (${client.username})`),
-          el('a', { class: 'btn', href: `/#client-${encodeURIComponent(client.username)}` }, 'Sessions'),
-          el('button', { class: 'small danger', onclick: act('DELETE', `/api/clients/${encodeURIComponent(client.username)}`, `${client.username} has been removed from your clients.`) }, 'Remove'),
+        ? el('div', { class: 'card' }, data.clients.map(client => el('div', { class: 'client-block' },
+          el('div', { class: 'list-row' },
+            el('div', { class: 'grow' }, el('strong', {}, client.name), ` (${client.username})`),
+            el('a', { class: 'btn', href: `/#client-${encodeURIComponent(client.username)}` }, 'Sessions'),
+            el('button', { class: 'small danger', onclick: act('DELETE', `/api/clients/${encodeURIComponent(client.username)}`, `${client.username} has been removed from your clients.`) }, 'Remove'),
+          ),
+          profileEditor(client, library),
         )))
         : el('p', { class: 'muted' }, 'No clients yet.'),
 

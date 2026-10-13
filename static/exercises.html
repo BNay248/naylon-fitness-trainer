@@ -12,10 +12,9 @@
 <div id="toasts"></div>
 <script src="/static/common.js"></script>
 <script src="/static/session-ui.js"></script>
+<script src="/static/library-ui.js"></script>
 <script>
   const POSSIBLE_METRICS = ['Reps', 'Weight', 'Duration', 'Calories', 'Resistance', 'Distance'];
-  const LEVELS = ['beginner', 'intermediate', 'advanced'];
-  const levelLabel = level => level ? level[0].toUpperCase() + level.slice(1) : '';
 
   const ROLE_ORDER = [null, 'primary', 'secondary'];
   const nextRole = role => ROLE_ORDER[(ROLE_ORDER.indexOf(role || null) + 1) % ROLE_ORDER.length];
@@ -81,37 +80,6 @@
       reset() { muscleRole.clear(); addedRole.clear(); draw(); },
     };
   }
-
-  // A collapsible set of on/off chips in labelled sections ([{label, items}]); returns {node, read(), reset()}.
-  function chipPicker(title, sections, selectedIds) {
-    const selected = new Set(selectedIds || []);
-    const summary = el('span', { class: 'muted' });
-    const chips = [];
-    const draw = () => {
-      chips.forEach(({ chip, item }) => chip.classList.toggle('on', selected.has(item.id)));
-      summary.textContent = selected.size ? `${selected.size} selected` : 'None selected';
-    };
-    const rows = sections.filter(section => section.items.length).map(section => el('div', { class: 'muscle-group' },
-      el('span', { class: 'muted' }, section.label),
-      el('div', { class: 'chips' }, section.items.map(item => {
-        const chip = el('span', { class: 'chip', title: item.description || '', onclick: () => {
-          selected.has(item.id) ? selected.delete(item.id) : selected.add(item.id);
-          draw();
-        } }, item.name);
-        chips.push({ chip, item });
-        return chip;
-      }))));
-    draw();
-    return {
-      node: el('details', { class: 'card' }, el('summary', {}, el('span', {}, title), summary),
-        rows.length ? rows : el('p', { class: 'muted' }, 'Nothing has been set up yet.')),
-      read: () => [...selected],
-      reset() { selected.clear(); draw(); },
-    };
-  }
-
-  // Sections of library items by their type/kind, in the configured order.
-  const bySection = (items, key, order) => order.map(label => ({ label, items: items.filter(item => item[key] === label) }));
 
   // The next-harder exercises: chosen from a list, shown as removable chips. Easier ones are listed for reference.
   function progressionPicker(exercise, catalog) {
