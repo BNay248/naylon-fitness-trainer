@@ -86,6 +86,7 @@ function renderNav(active) {
   const links = [
     ['sessions', '/', 'Sessions'],
     ['exercises', '/exercises', 'Exercises'],
+    ME.role === 'coach' && ['muscles', '/muscles', 'Muscles'],
     ME.role === 'coach' && ['clients', '/clients', 'Clients'],
     ['coaches', '/coaches', 'Coaches'],
     ['profile', '/profile', 'Profile'],

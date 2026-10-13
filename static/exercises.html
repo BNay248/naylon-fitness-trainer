@@ -15,8 +15,73 @@
 <script>
   const POSSIBLE_METRICS = ['Reps', 'Weight', 'Duration', 'Calories', 'Resistance', 'Distance'];
 
+  const ROLE_ORDER = [null, 'primary', 'secondary'];
+  const nextRole = role => ROLE_ORDER[(ROLE_ORDER.indexOf(role || null) + 1) % ROLE_ORDER.length];
+  const stronger = (a, b) => (a === 'primary' || b === 'primary') ? 'primary' : (a || b || null);
+  const setRole = (chip, role) => {
+    chip.classList.toggle('on', role === 'primary');
+    chip.classList.toggle('secondary', role === 'secondary');
+  };
+
+  // Muscles and groups worked by an exercise. Each chip cycles off -> primary -> secondary.
+  // A group with a chosen muscle is included automatically (and locked); other groups can be picked directly.
+  function musclePicker(exercise, catalog) {
+    const muscleRole = new Map();
+    (exercise.secondary_muscle_ids || []).forEach(id => muscleRole.set(id, 'secondary'));
+    (exercise.primary_muscle_ids || []).forEach(id => muscleRole.set(id, 'primary'));
+    const addedRole = new Map();
+    (exercise.added_secondary_group_ids || []).forEach(id => addedRole.set(id, 'secondary'));
+    (exercise.added_primary_group_ids || []).forEach(id => addedRole.set(id, 'primary'));
+    const membersOf = group => catalog.muscles.filter(muscle => muscle.group_id === group.id);
+    const impliedRole = group => membersOf(group).reduce((role, muscle) => stronger(role, muscleRole.get(muscle.id)), null);
+
+    const summary = el('span', { class: 'muted' });
+    const chips = [];
+    const draw = () => {
+      chips.forEach(({ chip, group, muscle }) => {
+        if (muscle) return setRole(chip, muscleRole.get(muscle.id));
+        const implied = impliedRole(group);
+        setRole(chip, stronger(implied, addedRole.get(group.id)));
+        chip.classList.toggle('locked', !!implied);
+        chip.title = implied ? 'Included because one of its muscles is selected' : '';
+      });
+      const groups = catalog.groups.filter(group => impliedRole(group) || addedRole.get(group.id)).length;
+      summary.textContent = muscleRole.size || groups ? `${muscleRole.size} muscles, ${groups} groups` : 'None selected';
+    };
+    const cycle = (map, id) => {
+      const role = nextRole(map.get(id));
+      role ? map.set(id, role) : map.delete(id);
+      draw();
+    };
+    const rows = catalog.groups.map(group => {
+      const groupChip = el('span', { class: 'chip group-chip', onclick: () => { if (!impliedRole(group)) cycle(addedRole, group.id); } }, group.name);
+      chips.push({ chip: groupChip, group });
+      return el('div', { class: 'muscle-group' }, groupChip, el('div', { class: 'chips' }, membersOf(group).map(muscle => {
+        const chip = el('span', { class: 'chip', title: muscle.description, onclick: () => cycle(muscleRole, muscle.id) }, muscle.name);
+        chips.push({ chip, muscle });
+        return chip;
+      })));
+    });
+    draw();
+    const idsWith = (map, role) => [...map].filter(([, value]) => value === role).map(([id]) => id);
+    return {
+      node: el('details', { class: 'card' },
+        el('summary', {}, el('span', {}, 'Muscles (optional)'), summary),
+        catalog.groups.length
+          ? el('div', {}, el('p', { class: 'muted field' }, 'Tap once for primary (filled), again for secondary (outlined), again to clear.'), rows)
+          : el('p', { class: 'muted' }, 'No muscles have been set up yet.')),
+      read: () => ({
+        primary_muscle_ids: idsWith(muscleRole, 'primary'),
+        secondary_muscle_ids: idsWith(muscleRole, 'secondary'),
+        added_primary_group_ids: idsWith(addedRole, 'primary'),
+        added_secondary_group_ids: idsWith(addedRole, 'secondary'),
+      }),
+      reset() { muscleRole.clear(); addedRole.clear(); draw(); },
+    };
+  }
+
   // Form fields for an exercise; returns {node, read()}.
-  function exerciseForm(exercise = {}) {
+  function exerciseForm(exercise = {}, catalog) {
     const name = el('input', { type: 'text', value: exercise.name || '' });
     const instructions = el('textarea', {}, exercise.instructions || '');
     const video = el('input', { type: 'url', value: exercise.video_url || '', placeholder: 'https://youtube.com/…' });
@@ -28,15 +93,17 @@
         e.currentTarget.classList.toggle('on', selected.has(metric));
       },
     }, metric)));
+    const muscles = musclePicker(exercise, catalog);
     return {
       node: el('div', {},
         el('div', { class: 'field' }, el('label', {}, 'Exercise Name*'), name),
         el('div', { class: 'field' }, el('label', {}, 'Instructions*'), instructions),
         el('div', { class: 'field' }, el('label', {}, 'Video URL (optional)'), video),
         el('div', { class: 'field' }, el('label', {}, 'Metrics'), chips),
+        muscles.node,
       ),
       read() {
-        const body = { name: name.value.trim(), instructions: instructions.value, video_url: video.value.trim(), metrics: POSSIBLE_METRICS.filter(m => selected.has(m)) };
+        const body = { name: name.value.trim(), instructions: instructions.value, video_url: video.value.trim(), metrics: POSSIBLE_METRICS.filter(m => selected.has(m)), ...muscles.read() };
         if (!body.name || !body.instructions.trim()) throw new Error('Please fill in all required fields');
         return body;
       },
@@ -44,6 +111,7 @@
         name.value = instructions.value = video.value = '';
         selected.clear();
         chips.querySelectorAll('.chip').forEach(chip => chip.classList.remove('on'));
+        muscles.reset();
       },
     };
   }
@@ -60,22 +128,34 @@
   // Coaches edit the global list; everyone edits their own personal exercises.
   const canEdit = exercise => exercise.owner ? exercise.owner === ME.username : isCoach();
 
-  function exerciseDetails(exercise) {
+  // "Mid Chest, Triceps (Chest, Arms)" for one role of an exercise.
+  function workedText(catalog, muscleIds, groupIds) {
+    const names = (list, ids) => ids.map(id => (list.find(item => item.id === id) || {}).name).filter(Boolean);
+    const muscles = names(catalog.muscles, muscleIds), groups = names(catalog.groups, groupIds);
+    if (!muscles.length) return groups.join(', ');
+    return groups.length ? `${muscles.join(', ')} (${groups.join(', ')})` : muscles.join(', ');
+  }
+
+  function exerciseDetails(exercise, catalog) {
     const video = youtubeEmbed(exercise.video_url) || youtubeEmbed(exercise.instructions);
+    const primary = workedText(catalog, exercise.primary_muscle_ids, exercise.primary_group_ids);
+    const secondary = workedText(catalog, exercise.secondary_muscle_ids, exercise.secondary_group_ids);
     return el('div', {},
       el('p', { class: 'pre-wrap' }, exercise.instructions),
       exercise.metrics.length && el('p', { class: 'muted' }, `Metrics: ${exercise.metrics.join(', ')}`),
+      primary && el('p', { class: 'muted' }, `Primary: ${primary}`),
+      secondary && el('p', { class: 'muted' }, `Secondary: ${secondary}`),
       video && el('div', { class: 'video' }, el('iframe', { src: video, allowfullscreen: true, loading: 'lazy', title: exercise.name })),
     );
   }
 
-  function requestsSection(requests, main) {
+  function requestsSection(requests, main, catalog) {
     if (!requests.length) return null;
     return el('div', {},
       el('h2', {}, `Requests for the Global List (${requests.length})`),
       requests.map(exercise => el('details', { class: 'card' },
         el('summary', {}, el('span', {}, exercise.name), el('span', { class: 'tag' }, `from ${exercise.owner_name}`)),
-        exerciseDetails(exercise),
+        exerciseDetails(exercise, catalog),
         el('div', { class: 'buttons' },
           el('button', { class: 'primary', onclick: e => withBusy(e.currentTarget, async () => {
             await api('POST', `/api/exercise-requests/${exercise.id}/approve`);
@@ -93,9 +173,10 @@
   }
 
   async function render(main) {
-    const [exercises, requests] = await Promise.all([
+    const [exercises, requests, catalog] = await Promise.all([
       api('GET', '/api/exercises'),
       isCoach() ? api('GET', '/api/exercise-requests') : [],
+      api('GET', '/api/muscles'),
     ]);
     const list = el('div', {});
     const filter = el('input', { type: 'search', placeholder: `Filter ${exercises.length} exercises…`, oninput: () => applyFilter() });
@@ -105,10 +186,10 @@
       list.querySelectorAll('details').forEach(node => node.classList.toggle('hidden', !!query && !node.dataset.name.includes(query)));
     }
 
-    const create = exerciseForm();
+    const create = exerciseForm({}, catalog);
     mount(main,
       el('h1', {}, isCoach() ? 'Manage Exercises' : 'Exercises'),
-      requestsSection(requests, main),
+      requestsSection(requests, main, catalog),
       el('details', { class: 'card' },
         el('summary', {}, isCoach() ? 'Add Exercise' : 'Add Personal Exercise'),
         !isCoach() && el('p', { class: 'muted field' }, 'Only you will see this exercise. You can ask a coach to add it to the global list.'),
@@ -134,8 +215,8 @@
       // Editors are built on first open; there are 100+ exercises.
       card.addEventListener('toggle', () => {
         if (!card.open || card.childElementCount > 1) return;
-        if (!canEdit(exercise)) return card.append(exerciseDetails(exercise));
-        const form = exerciseForm(exercise);
+        if (!canEdit(exercise)) return card.append(exerciseDetails(exercise, catalog));
+        const form = exerciseForm(exercise, catalog);
         let confirming = false;
         const actions = el('div', {});
         const setRequest = (button, pending) => withBusy(button, async () => {

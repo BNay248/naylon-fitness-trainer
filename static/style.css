@@ -119,3 +119,9 @@ nav .nav-toggle { display: none; margin-left: auto; padding: 6px 12px; font-size
 @keyframes toast-in { from { opacity: 0; transform: translateY(-6px); } }
 .status-banner { position: fixed; left: 0; right: 0; bottom: 0; text-align: center; font-size: 12px; color: var(--warn); background: var(--panel); border-top: 1px solid var(--border-soft); padding: 8px 16px; padding-bottom: calc(8px + env(safe-area-inset-bottom)); transform: translateY(100%); transition: transform 0.2s ease; z-index: 10; }
 .status-banner.visible { transform: translateY(0); }
+
+/* MUSCLES */
+.chip.secondary { background: transparent; border-color: var(--accent); color: var(--accent); }
+.chip.locked { cursor: default; opacity: 0.85; }
+.group-chip { font-weight: 600; }
+.muscle-group { display: flex; flex-direction: column; gap: 6px; padding: 8px 0; border-top: 1px solid var(--border-soft); }

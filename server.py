@@ -12,7 +12,7 @@ from fastapi.staticfiles import StaticFiles
 from jose import JWTError, jwt
 from pydantic import BaseModel
 
-from db_manager import TrainerDB
+from db_manager import ADDED_GROUP_FIELDS, GROUP_FIELDS, MUSCLE_FIELDS, TrainerDB
 
 app = FastAPI()
 db = TrainerDB()
@@ -324,12 +324,14 @@ def serialize_exercise(exercise: Dict) -> Dict:
         "metrics": exercise.get("metrics") or [],
         "owner": exercise.get("owner"),
         "pending": bool(exercise.get("pending")),
+        **{field: exercise.get(field) or [] for field in MUSCLE_FIELDS + ADDED_GROUP_FIELDS + GROUP_FIELDS},
     }
 
 # ==================== PAGES ====================
 
 PAGES = {"/": "index.html", "/exercises": "exercises.html", "/clients": "clients.html",
-         "/coaches": "coaches.html", "/profile": "profile.html", "/admin": "admin.html"}
+         "/coaches": "coaches.html", "/profile": "profile.html", "/admin": "admin.html",
+         "/muscles": "muscles.html"}
 
 for route, filename in PAGES.items():
     app.add_api_route(route, (lambda filename=filename: FileResponse(f"static/{filename}")), methods=["GET"], include_in_schema=False)
@@ -416,6 +418,47 @@ class ExerciseRequest(BaseModel):
     instructions: str
     video_url: str = ""
     metrics: List[str] = []
+    primary_muscle_ids: List[str] = []
+    secondary_muscle_ids: List[str] = []
+    added_primary_group_ids: List[str] = []    # groups picked directly, not through one of their muscles
+    added_secondary_group_ids: List[str] = []
+
+
+def unique(values) -> List[str]:
+    return list(dict.fromkeys(values))
+
+
+def muscle_group_lookup() -> Dict[str, str]:
+    return {str(muscle["_id"]): muscle.get("group_id") for muscle in db.get_all_muscles()}
+
+
+def with_groups(fields: Dict, group_of: Dict[str, str]) -> Dict:
+    """Fills the worked groups: groups added directly plus each muscle's group. Primary beats secondary."""
+    primary = unique(fields["added_primary_group_ids"] + [group_of[m] for m in fields["primary_muscle_ids"] if m in group_of])
+    secondary = [group for group in unique(fields["added_secondary_group_ids"] + [group_of[m] for m in fields["secondary_muscle_ids"] if m in group_of])
+                 if group not in primary]
+    return {**fields, "primary_group_ids": primary, "secondary_group_ids": secondary}
+
+
+def muscle_fields(req: ExerciseRequest) -> Dict:
+    group_of = muscle_group_lookup()
+    group_ids = {str(group["_id"]) for group in db.get_all_muscle_groups()}
+    primary = unique(m for m in req.primary_muscle_ids if m in group_of)
+    added_primary = unique(g for g in req.added_primary_group_ids if g in group_ids)
+    return with_groups({
+        "primary_muscle_ids": primary,
+        "secondary_muscle_ids": unique(m for m in req.secondary_muscle_ids if m in group_of and m not in primary),
+        "added_primary_group_ids": added_primary,
+        "added_secondary_group_ids": unique(g for g in req.added_secondary_group_ids if g in group_ids and g not in added_primary),
+    }, group_of)
+
+
+def refresh_exercise_groups(exercises: List[Dict]) -> None:
+    """Re-derives worked groups after a muscle moved group or was removed."""
+    group_of = muscle_group_lookup()
+    for exercise in exercises:
+        fields = {field: exercise.get(field) or [] for field in MUSCLE_FIELDS + ADDED_GROUP_FIELDS}
+        db.update_exercise(str(exercise["_id"]), with_groups(fields, group_of))
 
 
 def exercise_fields(req: ExerciseRequest) -> Dict:
@@ -426,6 +469,7 @@ def exercise_fields(req: ExerciseRequest) -> Dict:
         "instructions": req.instructions,
         "video_url": req.video_url.strip(),
         "metrics": [metric for metric in POSSIBLE_METRICS if metric in req.metrics],
+        **muscle_fields(req),
     }
 
 
@@ -525,6 +569,108 @@ def approve_exercise_request(exercise_id: str, user: Dict = Depends(coach_user))
 def decline_exercise_request(exercise_id: str, user: Dict = Depends(coach_user)):
     get_pending_exercise(exercise_id)
     db.update_exercise(exercise_id, {"pending": False})
+    return {"ok": True}
+
+# ==================== MUSCLES ====================
+
+
+class MuscleGroupRequest(BaseModel):
+    name: str
+    description: str = ""
+
+
+class MuscleRequest(BaseModel):
+    name: str
+    group_id: str
+    description: str = ""
+
+
+def serialize_named(item: Dict) -> Dict:
+    return {"id": str(item["_id"]), "name": item.get("name", ""), "description": item.get("description", "")}
+
+
+def named_fields(name: str, description: str, existing: List[Dict], kind: str, exclude_id: Optional[str] = None) -> Dict:
+    name = name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Please enter a name")
+    if any(str(item["_id"]) != exclude_id and str(item.get("name", "")).lower() == name.lower() for item in existing):
+        raise HTTPException(status_code=409, detail=f"A {kind} named \"{name}\" already exists")
+    return {"name": name, "description": description.strip()}
+
+
+def muscle_request_fields(req: MuscleRequest, exclude_id: Optional[str] = None) -> Dict:
+    if not db.get_muscle_group(req.group_id):
+        raise HTTPException(status_code=400, detail="Please choose a muscle group")
+    return {**named_fields(req.name, req.description, db.get_all_muscles(), "muscle", exclude_id), "group_id": req.group_id}
+
+
+def get_muscle_group_or_404(group_id: str) -> Dict:
+    group = db.get_muscle_group(group_id)
+    if not group:
+        raise HTTPException(status_code=404, detail="Muscle group not found")
+    return group
+
+
+def get_muscle_or_404(muscle_id: str) -> Dict:
+    muscle = db.get_muscle(muscle_id)
+    if not muscle:
+        raise HTTPException(status_code=404, detail="Muscle not found")
+    return muscle
+
+
+@app.get("/api/muscles")
+def list_muscles(user: Dict = Depends(current_user)):
+    return {
+        "groups": [serialize_named(group) for group in db.get_all_muscle_groups()],
+        "muscles": [{**serialize_named(muscle), "group_id": muscle.get("group_id")} for muscle in db.get_all_muscles()],
+    }
+
+
+@app.post("/api/muscle-groups")
+def create_muscle_group(req: MuscleGroupRequest, user: Dict = Depends(coach_user)):
+    return {"id": db.add_muscle_group(named_fields(req.name, req.description, db.get_all_muscle_groups(), "muscle group"))}
+
+
+@app.put("/api/muscle-groups/{group_id}")
+def update_muscle_group(group_id: str, req: MuscleGroupRequest, user: Dict = Depends(coach_user)):
+    get_muscle_group_or_404(group_id)
+    db.update_muscle_group(group_id, named_fields(req.name, req.description, db.get_all_muscle_groups(), "muscle group", group_id))
+    return {"ok": True}
+
+
+@app.delete("/api/muscle-groups/{group_id}")
+def delete_muscle_group(group_id: str, user: Dict = Depends(coach_user)):
+    get_muscle_group_or_404(group_id)
+    count = db.count_muscles_in_group(group_id)
+    if count:
+        raise HTTPException(status_code=409, detail=f"Move or delete the {count} muscle{'s' if count != 1 else ''} in this group first")
+    db.pull_from_exercises(ADDED_GROUP_FIELDS + GROUP_FIELDS, group_id)
+    db.delete_muscle_group(group_id)
+    return {"ok": True}
+
+
+@app.post("/api/muscles")
+def create_muscle(req: MuscleRequest, user: Dict = Depends(coach_user)):
+    return {"id": db.add_muscle(muscle_request_fields(req))}
+
+
+@app.put("/api/muscles/{muscle_id}")
+def update_muscle(muscle_id: str, req: MuscleRequest, user: Dict = Depends(coach_user)):
+    muscle = get_muscle_or_404(muscle_id)
+    fields = muscle_request_fields(req, muscle_id)
+    db.update_muscle(muscle_id, fields)
+    if fields["group_id"] != muscle.get("group_id"):
+        refresh_exercise_groups(db.get_exercises_using(MUSCLE_FIELDS, muscle_id))
+    return {"ok": True}
+
+
+@app.delete("/api/muscles/{muscle_id}")
+def delete_muscle(muscle_id: str, user: Dict = Depends(coach_user)):
+    get_muscle_or_404(muscle_id)
+    affected = [str(exercise["_id"]) for exercise in db.get_exercises_using(MUSCLE_FIELDS, muscle_id)]
+    db.delete_muscle(muscle_id)
+    db.pull_from_exercises(MUSCLE_FIELDS, muscle_id)
+    refresh_exercise_groups(db.get_exercises_by_ids(affected))
     return {"ok": True}
 
 # ==================== SESSIONS ====================
