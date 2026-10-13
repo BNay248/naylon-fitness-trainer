@@ -12,7 +12,8 @@ from fastapi.staticfiles import StaticFiles
 from jose import JWTError, jwt
 from pydantic import BaseModel
 
-from db_manager import ADDED_GROUP_FIELDS, GROUP_FIELDS, MUSCLE_FIELDS, TrainerDB
+from db_manager import (ADDED_GROUP_FIELDS, EQUIPMENT_TYPES, GROUP_FIELDS, LINK_FIELDS, MUSCLE_FIELDS, PATTERN_KINDS,
+                        TrainerDB, unique, with_groups)
 
 app = FastAPI()
 db = TrainerDB()
@@ -324,14 +325,14 @@ def serialize_exercise(exercise: Dict) -> Dict:
         "metrics": exercise.get("metrics") or [],
         "owner": exercise.get("owner"),
         "pending": bool(exercise.get("pending")),
-        **{field: exercise.get(field) or [] for field in MUSCLE_FIELDS + ADDED_GROUP_FIELDS + GROUP_FIELDS},
+        **{field: exercise.get(field) or [] for field in MUSCLE_FIELDS + ADDED_GROUP_FIELDS + GROUP_FIELDS + LINK_FIELDS},
     }
 
 # ==================== PAGES ====================
 
 PAGES = {"/": "index.html", "/exercises": "exercises.html", "/clients": "clients.html",
          "/coaches": "coaches.html", "/profile": "profile.html", "/admin": "admin.html",
-         "/muscles": "muscles.html"}
+         "/library": "library.html"}
 
 for route, filename in PAGES.items():
     app.add_api_route(route, (lambda filename=filename: FileResponse(f"static/{filename}")), methods=["GET"], include_in_schema=False)
@@ -422,27 +423,22 @@ class ExerciseRequest(BaseModel):
     secondary_muscle_ids: List[str] = []
     added_primary_group_ids: List[str] = []    # groups picked directly, not through one of their muscles
     added_secondary_group_ids: List[str] = []
+    equipment_ids: List[str] = []
+    movement_pattern_ids: List[str] = []
+    progression_ids: List[str] = []           # the next-harder exercises
 
 
-def unique(values) -> List[str]:
-    return list(dict.fromkeys(values))
+def ids_in(collection: str) -> set:
+    return {str(item["_id"]) for item in db.get_items(collection)}
 
 
 def muscle_group_lookup() -> Dict[str, str]:
-    return {str(muscle["_id"]): muscle.get("group_id") for muscle in db.get_all_muscles()}
-
-
-def with_groups(fields: Dict, group_of: Dict[str, str]) -> Dict:
-    """Fills the worked groups: groups added directly plus each muscle's group. Primary beats secondary."""
-    primary = unique(fields["added_primary_group_ids"] + [group_of[m] for m in fields["primary_muscle_ids"] if m in group_of])
-    secondary = [group for group in unique(fields["added_secondary_group_ids"] + [group_of[m] for m in fields["secondary_muscle_ids"] if m in group_of])
-                 if group not in primary]
-    return {**fields, "primary_group_ids": primary, "secondary_group_ids": secondary}
+    return {str(muscle["_id"]): muscle.get("group_id") for muscle in db.get_items("muscles")}
 
 
 def muscle_fields(req: ExerciseRequest) -> Dict:
     group_of = muscle_group_lookup()
-    group_ids = {str(group["_id"]) for group in db.get_all_muscle_groups()}
+    group_ids = ids_in("muscle_groups")
     primary = unique(m for m in req.primary_muscle_ids if m in group_of)
     added_primary = unique(g for g in req.added_primary_group_ids if g in group_ids)
     return with_groups({
@@ -453,6 +449,18 @@ def muscle_fields(req: ExerciseRequest) -> Dict:
     }, group_of)
 
 
+def link_fields(req: ExerciseRequest, owner: Optional[str], exercise_id: Optional[str]) -> Dict:
+    """Equipment, patterns and progressions, keeping only ids that exist. A global exercise can only progress
+    to other global exercises; a personal one also to its owner's personal exercises."""
+    equipment, patterns = ids_in("equipment"), ids_in("movement_patterns")
+    reachable = {str(item["_id"]) for item in db.get_visible_exercises([owner] if owner else [])}
+    return {
+        "equipment_ids": unique(i for i in req.equipment_ids if i in equipment),
+        "movement_pattern_ids": unique(i for i in req.movement_pattern_ids if i in patterns),
+        "progression_ids": unique(i for i in req.progression_ids if i in reachable and i != exercise_id),
+    }
+
+
 def refresh_exercise_groups(exercises: List[Dict]) -> None:
     """Re-derives worked groups after a muscle moved group or was removed."""
     group_of = muscle_group_lookup()
@@ -461,7 +469,7 @@ def refresh_exercise_groups(exercises: List[Dict]) -> None:
         db.update_exercise(str(exercise["_id"]), with_groups(fields, group_of))
 
 
-def exercise_fields(req: ExerciseRequest) -> Dict:
+def exercise_fields(req: ExerciseRequest, owner: Optional[str], exercise_id: Optional[str] = None) -> Dict:
     if not req.name.strip() or not req.instructions.strip():
         raise HTTPException(status_code=400, detail="Please fill in all required fields")
     return {
@@ -470,6 +478,7 @@ def exercise_fields(req: ExerciseRequest) -> Dict:
         "video_url": req.video_url.strip(),
         "metrics": [metric for metric in POSSIBLE_METRICS if metric in req.metrics],
         **muscle_fields(req),
+        **link_fields(req, owner, exercise_id),
     }
 
 
@@ -511,17 +520,18 @@ def list_exercises(user: Dict = Depends(current_user)):
 @app.post("/api/exercises")
 def create_exercise(req: ExerciseRequest, user: Dict = Depends(current_user)):
     """Coaches add to the global list; everyone else adds a personal exercise only they can see."""
-    fields = exercise_fields(req)
+    owner = None if user.get("role") == "coach" else user["username"]
+    fields = exercise_fields(req, owner)
     check_name_free(fields["name"], db.get_visible_exercises([user["username"]]))
-    if user.get("role") != "coach":
-        fields["owner"] = user["username"]
+    if owner:
+        fields["owner"] = owner
     return {"id": db.add_exercise(fields)}
 
 
 @app.put("/api/exercises/{exercise_id}")
 def update_exercise(exercise_id: str, req: ExerciseRequest, user: Dict = Depends(current_user)):
     exercise = get_editable_exercise(exercise_id, user)
-    fields = exercise_fields(req)
+    fields = exercise_fields(req, exercise.get("owner"), exercise_id)
     others = db.get_visible_exercises([exercise["owner"]] if exercise.get("owner") else [])
     check_name_free(fields["name"], others, exclude_id=exercise_id)
     db.update_exercise(exercise_id, fields)
@@ -532,6 +542,7 @@ def update_exercise(exercise_id: str, req: ExerciseRequest, user: Dict = Depends
 def delete_exercise(exercise_id: str, user: Dict = Depends(current_user)):
     get_editable_exercise(exercise_id, user)
     db.delete_exercise(exercise_id)
+    db.pull_from_exercises(["progression_ids"], exercise_id)
     return {"ok": True}
 
 
@@ -571,106 +582,104 @@ def decline_exercise_request(exercise_id: str, user: Dict = Depends(coach_user))
     db.update_exercise(exercise_id, {"pending": False})
     return {"ok": True}
 
-# ==================== MUSCLES ====================
+# ==================== LIBRARY ====================
+# Muscle groups, muscles, equipment and movement patterns: named items exercises link to by id.
+
+LIBRARY = {
+    "muscle-groups": {"collection": "muscle_groups", "label": "muscle group", "exercise_fields": ADDED_GROUP_FIELDS + GROUP_FIELDS},
+    "muscles": {"collection": "muscles", "label": "muscle", "exercise_fields": MUSCLE_FIELDS},
+    "equipment": {"collection": "equipment", "label": "equipment", "exercise_fields": ["equipment_ids"], "choice": ("type", EQUIPMENT_TYPES)},
+    "movement-patterns": {"collection": "movement_patterns", "label": "movement pattern", "exercise_fields": ["movement_pattern_ids"],
+                          "choice": ("kind", PATTERN_KINDS)},
+}
 
 
-class MuscleGroupRequest(BaseModel):
+class LibraryItemRequest(BaseModel):
     name: str
     description: str = ""
+    group_id: str = ""  # muscles
+    type: str = ""      # equipment
+    kind: str = ""      # movement patterns
 
 
-class MuscleRequest(BaseModel):
-    name: str
-    group_id: str
-    description: str = ""
+def serialize_item(item: Dict) -> Dict:
+    extra = {key: item.get(key, "") for key in ("group_id", "type", "kind") if key in item}
+    return {"id": str(item["_id"]), "name": item.get("name", ""), "description": item.get("description", ""), **extra}
 
 
-def serialize_named(item: Dict) -> Dict:
-    return {"id": str(item["_id"]), "name": item.get("name", ""), "description": item.get("description", "")}
+def library_spec(kind: str) -> Dict:
+    if kind not in LIBRARY:
+        raise HTTPException(status_code=404, detail="Not found")
+    return LIBRARY[kind]
 
 
-def named_fields(name: str, description: str, existing: List[Dict], kind: str, exclude_id: Optional[str] = None) -> Dict:
-    name = name.strip()
+def get_item_or_404(spec: Dict, item_id: str) -> Dict:
+    item = db.get_item(spec["collection"], item_id)
+    if not item:
+        raise HTTPException(status_code=404, detail=f"{spec['label'].capitalize()} not found")
+    return item
+
+
+def library_fields(kind: str, req: LibraryItemRequest, exclude_id: Optional[str] = None) -> Dict:
+    spec = library_spec(kind)
+    name = req.name.strip()
     if not name:
         raise HTTPException(status_code=400, detail="Please enter a name")
-    if any(str(item["_id"]) != exclude_id and str(item.get("name", "")).lower() == name.lower() for item in existing):
-        raise HTTPException(status_code=409, detail=f"A {kind} named \"{name}\" already exists")
-    return {"name": name, "description": description.strip()}
+    if any(str(item["_id"]) != exclude_id and str(item.get("name", "")).lower() == name.lower() for item in db.get_items(spec["collection"])):
+        raise HTTPException(status_code=409, detail=f"{spec['label'].capitalize()} \"{name}\" already exists")
+    fields = {"name": name, "description": req.description.strip()}
+    if kind == "muscles":
+        if not db.get_item("muscle_groups", req.group_id):
+            raise HTTPException(status_code=400, detail="Please choose a muscle group")
+        fields["group_id"] = req.group_id
+    if "choice" in spec:
+        key, options = spec["choice"]
+        value = getattr(req, key)
+        if value not in options:
+            raise HTTPException(status_code=400, detail=f"Please choose a {key}")
+        fields[key] = value
+    return fields
 
 
-def muscle_request_fields(req: MuscleRequest, exclude_id: Optional[str] = None) -> Dict:
-    if not db.get_muscle_group(req.group_id):
-        raise HTTPException(status_code=400, detail="Please choose a muscle group")
-    return {**named_fields(req.name, req.description, db.get_all_muscles(), "muscle", exclude_id), "group_id": req.group_id}
-
-
-def get_muscle_group_or_404(group_id: str) -> Dict:
-    group = db.get_muscle_group(group_id)
-    if not group:
-        raise HTTPException(status_code=404, detail="Muscle group not found")
-    return group
-
-
-def get_muscle_or_404(muscle_id: str) -> Dict:
-    muscle = db.get_muscle(muscle_id)
-    if not muscle:
-        raise HTTPException(status_code=404, detail="Muscle not found")
-    return muscle
-
-
-@app.get("/api/muscles")
-def list_muscles(user: Dict = Depends(current_user)):
+@app.get("/api/library")
+def get_library(user: Dict = Depends(current_user)):
     return {
-        "groups": [serialize_named(group) for group in db.get_all_muscle_groups()],
-        "muscles": [{**serialize_named(muscle), "group_id": muscle.get("group_id")} for muscle in db.get_all_muscles()],
+        **{spec["collection"]: [serialize_item(item) for item in db.get_items(spec["collection"])] for spec in LIBRARY.values()},
+        "equipment_types": EQUIPMENT_TYPES,
+        "pattern_kinds": PATTERN_KINDS,
     }
 
 
-@app.post("/api/muscle-groups")
-def create_muscle_group(req: MuscleGroupRequest, user: Dict = Depends(coach_user)):
-    return {"id": db.add_muscle_group(named_fields(req.name, req.description, db.get_all_muscle_groups(), "muscle group"))}
+@app.post("/api/library/{kind}")
+def create_library_item(kind: str, req: LibraryItemRequest, user: Dict = Depends(coach_user)):
+    return {"id": db.add_item(library_spec(kind)["collection"], library_fields(kind, req))}
 
 
-@app.put("/api/muscle-groups/{group_id}")
-def update_muscle_group(group_id: str, req: MuscleGroupRequest, user: Dict = Depends(coach_user)):
-    get_muscle_group_or_404(group_id)
-    db.update_muscle_group(group_id, named_fields(req.name, req.description, db.get_all_muscle_groups(), "muscle group", group_id))
+@app.put("/api/library/{kind}/{item_id}")
+def update_library_item(kind: str, item_id: str, req: LibraryItemRequest, user: Dict = Depends(coach_user)):
+    spec = library_spec(kind)
+    item = get_item_or_404(spec, item_id)
+    fields = library_fields(kind, req, item_id)
+    db.update_item(spec["collection"], item_id, fields)
+    if kind == "muscles" and fields["group_id"] != item.get("group_id"):
+        refresh_exercise_groups(db.get_exercises_using(MUSCLE_FIELDS, item_id))
     return {"ok": True}
 
 
-@app.delete("/api/muscle-groups/{group_id}")
-def delete_muscle_group(group_id: str, user: Dict = Depends(coach_user)):
-    get_muscle_group_or_404(group_id)
-    count = db.count_muscles_in_group(group_id)
-    if count:
-        raise HTTPException(status_code=409, detail=f"Move or delete the {count} muscle{'s' if count != 1 else ''} in this group first")
-    db.pull_from_exercises(ADDED_GROUP_FIELDS + GROUP_FIELDS, group_id)
-    db.delete_muscle_group(group_id)
-    return {"ok": True}
-
-
-@app.post("/api/muscles")
-def create_muscle(req: MuscleRequest, user: Dict = Depends(coach_user)):
-    return {"id": db.add_muscle(muscle_request_fields(req))}
-
-
-@app.put("/api/muscles/{muscle_id}")
-def update_muscle(muscle_id: str, req: MuscleRequest, user: Dict = Depends(coach_user)):
-    muscle = get_muscle_or_404(muscle_id)
-    fields = muscle_request_fields(req, muscle_id)
-    db.update_muscle(muscle_id, fields)
-    if fields["group_id"] != muscle.get("group_id"):
-        refresh_exercise_groups(db.get_exercises_using(MUSCLE_FIELDS, muscle_id))
-    return {"ok": True}
-
-
-@app.delete("/api/muscles/{muscle_id}")
-def delete_muscle(muscle_id: str, user: Dict = Depends(coach_user)):
-    get_muscle_or_404(muscle_id)
-    affected = [str(exercise["_id"]) for exercise in db.get_exercises_using(MUSCLE_FIELDS, muscle_id)]
-    db.delete_muscle(muscle_id)
-    db.pull_from_exercises(MUSCLE_FIELDS, muscle_id)
-    refresh_exercise_groups(db.get_exercises_by_ids(affected))
+@app.delete("/api/library/{kind}/{item_id}")
+def delete_library_item(kind: str, item_id: str, user: Dict = Depends(coach_user)):
+    """Also removes the item from every exercise that links to it."""
+    spec = library_spec(kind)
+    get_item_or_404(spec, item_id)
+    if kind == "muscle-groups":
+        count = db.count_items("muscles", {"group_id": item_id})
+        if count:
+            raise HTTPException(status_code=409, detail=f"Move or delete the {count} muscle{'s' if count != 1 else ''} in this group first")
+    affected = [str(exercise["_id"]) for exercise in db.get_exercises_using(spec["exercise_fields"], item_id)]
+    db.delete_item(spec["collection"], item_id)
+    db.pull_from_exercises(spec["exercise_fields"], item_id)
+    if kind == "muscles":
+        refresh_exercise_groups(db.get_exercises_by_ids(affected))
     return {"ok": True}
 
 # ==================== SESSIONS ====================

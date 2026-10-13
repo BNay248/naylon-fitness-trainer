@@ -80,6 +80,67 @@
     };
   }
 
+  // A collapsible set of on/off chips in labelled sections ([{label, items}]); returns {node, read(), reset()}.
+  function chipPicker(title, sections, selectedIds) {
+    const selected = new Set(selectedIds || []);
+    const summary = el('span', { class: 'muted' });
+    const chips = [];
+    const draw = () => {
+      chips.forEach(({ chip, item }) => chip.classList.toggle('on', selected.has(item.id)));
+      summary.textContent = selected.size ? `${selected.size} selected` : 'None selected';
+    };
+    const rows = sections.filter(section => section.items.length).map(section => el('div', { class: 'muscle-group' },
+      el('span', { class: 'muted' }, section.label),
+      el('div', { class: 'chips' }, section.items.map(item => {
+        const chip = el('span', { class: 'chip', title: item.description || '', onclick: () => {
+          selected.has(item.id) ? selected.delete(item.id) : selected.add(item.id);
+          draw();
+        } }, item.name);
+        chips.push({ chip, item });
+        return chip;
+      }))));
+    draw();
+    return {
+      node: el('details', { class: 'card' }, el('summary', {}, el('span', {}, title), summary),
+        rows.length ? rows : el('p', { class: 'muted' }, 'Nothing has been set up yet.')),
+      read: () => [...selected],
+      reset() { selected.clear(); draw(); },
+    };
+  }
+
+  // Sections of library items by their type/kind, in the configured order.
+  const bySection = (items, key, order) => order.map(label => ({ label, items: items.filter(item => item[key] === label) }));
+
+  // The next-harder exercises: chosen from a list, shown as removable chips. Easier ones are listed for reference.
+  function progressionPicker(exercise, catalog) {
+    const chosen = [...(exercise.progression_ids || [])];
+    const easier = exercise.id ? catalog.exercises.filter(item => (item.progression_ids || []).includes(exercise.id)) : [];
+    const summary = el('span', { class: 'muted' });
+    const chips = el('div', { class: 'chips field' });
+    const select = el('select', { onchange: () => {
+      if (select.value && !chosen.includes(select.value)) chosen.push(select.value);
+      draw();
+    } });
+    const nameOf = id => (catalog.exercises.find(item => item.id === id) || {}).name;
+    function draw() {
+      mount(chips, chosen.filter(nameOf).map(id => el('span', { class: 'chip on', title: 'Remove', onclick: () => {
+        chosen.splice(chosen.indexOf(id), 1);
+        draw();
+      } }, `${nameOf(id)} ✕`)));
+      mount(select, el('option', { value: '' }, 'Add a harder exercise…'),
+        catalog.exercises.filter(item => item.id !== exercise.id && !chosen.includes(item.id)).map(item => el('option', { value: item.id }, item.name)));
+      summary.textContent = chosen.length ? `${chosen.length} next step${chosen.length === 1 ? '' : 's'}` : 'None';
+    }
+    draw();
+    return {
+      node: el('details', { class: 'card' }, el('summary', {}, el('span', {}, 'Progressions (optional)'), summary),
+        easier.length && el('p', { class: 'muted field' }, `Easier: ${easier.map(item => item.name).join(', ')}`),
+        el('label', {}, 'Next harder step(s)'), chips, select),
+      read: () => chosen.filter(nameOf),
+      reset() { chosen.length = 0; draw(); },
+    };
+  }
+
   // Form fields for an exercise; returns {node, read()}.
   function exerciseForm(exercise = {}, catalog) {
     const name = el('input', { type: 'text', value: exercise.name || '' });
@@ -94,6 +155,9 @@
       },
     }, metric)));
     const muscles = musclePicker(exercise, catalog);
+    const equipment = chipPicker('Equipment (optional)', bySection(catalog.equipment, 'type', catalog.equipmentTypes), exercise.equipment_ids);
+    const patterns = chipPicker('Movement Patterns (optional)', bySection(catalog.patterns, 'kind', catalog.patternKinds), exercise.movement_pattern_ids);
+    const progressions = progressionPicker(exercise, catalog);
     return {
       node: el('div', {},
         el('div', { class: 'field' }, el('label', {}, 'Exercise Name*'), name),
@@ -101,9 +165,13 @@
         el('div', { class: 'field' }, el('label', {}, 'Video URL (optional)'), video),
         el('div', { class: 'field' }, el('label', {}, 'Metrics'), chips),
         muscles.node,
+        equipment.node,
+        patterns.node,
+        progressions.node,
       ),
       read() {
-        const body = { name: name.value.trim(), instructions: instructions.value, video_url: video.value.trim(), metrics: POSSIBLE_METRICS.filter(m => selected.has(m)), ...muscles.read() };
+        const body = { name: name.value.trim(), instructions: instructions.value, video_url: video.value.trim(), metrics: POSSIBLE_METRICS.filter(m => selected.has(m)), ...muscles.read(),
+          equipment_ids: equipment.read(), movement_pattern_ids: patterns.read(), progression_ids: progressions.read() };
         if (!body.name || !body.instructions.trim()) throw new Error('Please fill in all required fields');
         return body;
       },
@@ -112,6 +180,9 @@
         selected.clear();
         chips.querySelectorAll('.chip').forEach(chip => chip.classList.remove('on'));
         muscles.reset();
+        equipment.reset();
+        patterns.reset();
+        progressions.reset();
       },
     };
   }
@@ -128,9 +199,20 @@
   // Coaches edit the global list; everyone edits their own personal exercises.
   const canEdit = exercise => exercise.owner ? exercise.owner === ME.username : isCoach();
 
+  // Client-side mirror of the server's with_groups: groups added directly plus each muscle's group, primary first.
+  function withGroups(body, catalog) {
+    const groupOf = Object.fromEntries(catalog.muscles.map(muscle => [muscle.id, muscle.group_id]));
+    const primary = [...new Set([...body.added_primary_group_ids, ...body.primary_muscle_ids.map(id => groupOf[id])].filter(Boolean))];
+    const secondary = [...new Set([...body.added_secondary_group_ids, ...body.secondary_muscle_ids.map(id => groupOf[id])].filter(Boolean))]
+      .filter(id => !primary.includes(id));
+    return { ...body, primary_group_ids: primary, secondary_group_ids: secondary };
+  }
+
+  const namesOf = (list, ids) => (ids || []).map(id => (list.find(item => item.id === id) || {}).name).filter(Boolean);
+
   // "Mid Chest, Triceps (Chest, Arms)" for one role of an exercise.
   function workedText(catalog, muscleIds, groupIds) {
-    const names = (list, ids) => ids.map(id => (list.find(item => item.id === id) || {}).name).filter(Boolean);
+    const names = (list, ids) => namesOf(list, ids);
     const muscles = names(catalog.muscles, muscleIds), groups = names(catalog.groups, groupIds);
     if (!muscles.length) return groups.join(', ');
     return groups.length ? `${muscles.join(', ')} (${groups.join(', ')})` : muscles.join(', ');
@@ -140,11 +222,16 @@
     const video = youtubeEmbed(exercise.video_url) || youtubeEmbed(exercise.instructions);
     const primary = workedText(catalog, exercise.primary_muscle_ids, exercise.primary_group_ids);
     const secondary = workedText(catalog, exercise.secondary_muscle_ids, exercise.secondary_group_ids);
+    const line = (label, names) => names.length ? el('p', { class: 'muted' }, `${label}: ${names.join(', ')}`) : null;
     return el('div', {},
       el('p', { class: 'pre-wrap' }, exercise.instructions),
       exercise.metrics.length && el('p', { class: 'muted' }, `Metrics: ${exercise.metrics.join(', ')}`),
       primary && el('p', { class: 'muted' }, `Primary: ${primary}`),
       secondary && el('p', { class: 'muted' }, `Secondary: ${secondary}`),
+      line('Equipment', namesOf(catalog.equipment, exercise.equipment_ids)),
+      line('Patterns', namesOf(catalog.patterns, exercise.movement_pattern_ids)),
+      line('Easier', catalog.exercises.filter(item => (item.progression_ids || []).includes(exercise.id)).map(item => item.name)),
+      line('Harder', namesOf(catalog.exercises, exercise.progression_ids)),
       video && el('div', { class: 'video' }, el('iframe', { src: video, allowfullscreen: true, loading: 'lazy', title: exercise.name })),
     );
   }
@@ -173,17 +260,34 @@
   }
 
   async function render(main) {
-    const [exercises, requests, catalog] = await Promise.all([
+    const [exercises, requests, library] = await Promise.all([
       api('GET', '/api/exercises'),
       isCoach() ? api('GET', '/api/exercise-requests') : [],
-      api('GET', '/api/muscles'),
+      api('GET', '/api/library'),
     ]);
+    const catalog = {
+      groups: library.muscle_groups, muscles: library.muscles, equipment: library.equipment, patterns: library.movement_patterns,
+      equipmentTypes: library.equipment_types, patternKinds: library.pattern_kinds, exercises,
+    };
     const list = el('div', {});
     const filter = el('input', { type: 'search', placeholder: `Filter ${exercises.length} exercises…`, oninput: () => applyFilter() });
+    const filterSelect = (placeholder, sections) => el('select', { onchange: () => applyFilter() },
+      el('option', { value: '' }, placeholder),
+      sections.filter(section => section.items.length).map(section => el('optgroup', { label: section.label },
+        section.items.map(item => el('option', { value: item.id }, item.name)))));
+    const byMuscleGroup = filterSelect('Any muscle group', [{ label: 'Muscle groups', items: catalog.groups }]);
+    const byEquipment = filterSelect('Any equipment', bySection(catalog.equipment, 'type', catalog.equipmentTypes));
+    const byPattern = filterSelect('Any movement pattern', bySection(catalog.patterns, 'kind', catalog.patternKinds));
+    const cards = [];
 
     function applyFilter() {
       const query = filter.value.trim().toLowerCase();
-      list.querySelectorAll('details').forEach(node => node.classList.toggle('hidden', !!query && !node.dataset.name.includes(query)));
+      const has = (exercise, fields, id) => !id || fields.some(field => (exercise[field] || []).includes(id));
+      cards.forEach(({ card, exercise }) => card.classList.toggle('hidden', !(
+        (!query || card.dataset.name.includes(query))
+        && has(exercise, ['primary_group_ids', 'secondary_group_ids'], byMuscleGroup.value)
+        && has(exercise, ['equipment_ids'], byEquipment.value)
+        && has(exercise, ['movement_pattern_ids'], byPattern.value))));
     }
 
     const create = exerciseForm({}, catalog);
@@ -203,6 +307,7 @@
       ),
       el('h2', {}, 'All Exercises'),
       el('div', { class: 'field' }, filter),
+      el('div', { class: 'filters field' }, byMuscleGroup, byEquipment, byPattern),
       list,
     );
 
@@ -240,7 +345,7 @@
             el('div', { class: 'buttons' },
               el('button', { class: 'primary', onclick: e => formAction(e.currentTarget, form, async body => {
                 await api('PUT', `/api/exercises/${exercise.id}`, body);
-                Object.assign(exercise, body);
+                Object.assign(exercise, withGroups(body, catalog));
                 card.dataset.name = body.name.toLowerCase();
                 card.querySelector('summary span').textContent = body.name;
                 toast('Exercise saved');
@@ -252,6 +357,7 @@
         drawActions();
         card.append(form.node, actions);
       });
+      cards.push({ card, exercise });
       return card;
     }));
     applyFilter();

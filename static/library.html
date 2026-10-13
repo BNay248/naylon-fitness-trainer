@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Library · Naylon Fitness Portal</title>
+<link rel="icon" href="/static/NFP.jpg">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="container"></div>
+<div id="toasts"></div>
+<script src="/static/common.js"></script>
+<script>
+  // Coach page for the items exercises link to: muscles (in groups), equipment and movement patterns.
+  const TABS = [
+    { key: 'muscles', label: 'Muscles' },
+    { key: 'equipment', label: 'Equipment', kind: 'equipment', collection: 'equipment', noun: 'Equipment',
+      choice: { key: 'type', label: 'Type', options: 'equipment_types' }, field: 'equipment_ids',
+      intro: 'What an exercise needs. Used to filter exercises by what a gym has.' },
+    { key: 'patterns', label: 'Movement Patterns', kind: 'movement-patterns', collection: 'movement_patterns', noun: 'Movement Pattern',
+      choice: { key: 'kind', label: 'Kind', options: 'pattern_kinds' }, field: 'movement_pattern_ids',
+      intro: 'How an exercise moves. Exercises sharing a pattern and muscles make good swaps.' },
+  ];
+
+  // Form fields for a library item; `groups` adds a muscle group select, `choice` a type/kind select.
+  // Returns {node, read(), reset()}.
+  function itemForm(item = {}, { groups = null, choice = null } = {}) {
+    const name = el('input', { type: 'text', value: item.name || '' });
+    const description = el('textarea', {}, item.description || '');
+    const select = (placeholder, options, current) => el('select', {},
+      el('option', { value: '' }, placeholder),
+      options.map(option => el('option', { value: option.id, selected: option.id === current }, option.name)));
+    const group = groups && select('Choose a group…', groups, item.group_id);
+    const pick = choice && select(`Choose a ${choice.label.toLowerCase()}…`, choice.values.map(value => ({ id: value, name: value })), item[choice.key]);
+    return {
+      node: el('div', {},
+        el('div', { class: 'field' }, el('label', {}, 'Name*'), name),
+        group && el('div', { class: 'field' }, el('label', {}, 'Muscle Group*'), group),
+        pick && el('div', { class: 'field' }, el('label', {}, `${choice.label}*`), pick),
+        el('div', { class: 'field' }, el('label', {}, 'Description (optional)'), description),
+      ),
+      read() {
+        const body = { name: name.value.trim(), description: description.value.trim() };
+        if (group) body.group_id = group.value;
+        if (pick) body[choice.key] = pick.value;
+        if (!body.name || (group && !body.group_id) || (pick && !pick.value)) throw new Error('Please fill in all required fields');
+        return body;
+      },
+      reset() {
+        name.value = description.value = '';
+        if (group) group.value = '';
+        if (pick) pick.value = '';
+      },
+    };
+  }
+
+  function formAction(button, form, request) {
+    return withBusy(button, async () => {
+      let body;
+      try { body = form.read(); } catch (err) { return toast(err.message, 'error'); }
+      await request(body);
+    });
+  }
+
+  // Save + two-step delete buttons for an existing item.
+  function editActions(form, { path, label, refresh, warning }) {
+    let confirming = false;
+    const actions = el('div', {});
+    const draw = () => mount(actions, confirming
+      ? el('div', { class: 'confirm' }, `Delete "${label}"? ${warning}`,
+        el('div', { class: 'buttons' },
+          el('button', { class: 'danger', onclick: e => withBusy(e.currentTarget, async () => {
+            await api('DELETE', path);
+            toast(`"${label}" deleted`);
+            await refresh();
+          }) }, 'Yes, delete'),
+          el('button', { onclick: () => { confirming = false; draw(); } }, 'Cancel')))
+      : el('div', { class: 'buttons' },
+        el('button', { class: 'primary', onclick: e => formAction(e.currentTarget, form, async body => {
+          await api('PUT', path, body);
+          toast('Saved');
+          await refresh();
+        }) }, 'Save'),
+        el('button', { class: 'danger', onclick: () => { confirming = true; draw(); } }, 'Delete')));
+    draw();
+    return actions;
+  }
+
+  const usageText = count => `${count} exercise${count === 1 ? '' : 's'}`;
+  const usageWarning = count => count ? `It will be removed from the ${usageText(count)} using it.` : 'No exercises use it.';
+
+  // An "Add …" card that posts the form and refreshes.
+  function addCard(key, title, form, path, open, refresh) {
+    return el('details', { class: 'card', dataset: { key }, open: open.has(key) },
+      el('summary', {}, title),
+      form.node,
+      el('div', { class: 'buttons' }, el('button', { class: 'primary', onclick: e => formAction(e.currentTarget, form, async body => {
+        await api('POST', path, body);
+        toast(`"${body.name}" added`);
+        await refresh();
+      }) }, title)));
+  }
+
+  // Filters cards marked data-section (a group/type heading card) and data-item; a matching section shows all its items.
+  function applyFilter(list, query) {
+    list.querySelectorAll('details[data-section]').forEach(card => {
+      const sectionHit = !query || card.dataset.name.includes(query);
+      let any = sectionHit;
+      card.querySelectorAll('details[data-item]').forEach(node => {
+        const hit = sectionHit || node.dataset.name.includes(query);
+        node.classList.toggle('hidden', !hit);
+        any = any || hit;
+      });
+      card.classList.toggle('hidden', !any);
+      if (query && any) card.open = true;
+    });
+  }
+
+  function itemCard(item, form, path, usage, open, refresh, extraTags = []) {
+    return el('details', { class: 'card', dataset: { key: `i-${item.id}`, item: item.id, name: item.name.toLowerCase() }, open: open.has(`i-${item.id}`) },
+      el('summary', {}, el('span', {}, item.name), ...extraTags, usage ? el('span', { class: 'tag' }, usageText(usage)) : null),
+      form.node,
+      editActions(form, { path, label: item.name, refresh, warning: usageWarning(usage) }));
+  }
+
+  function musclesTab(library, usage, open, refresh) {
+    const { muscle_groups: groups, muscles } = library;
+    const list = el('div', {});
+    const filter = el('input', { type: 'search', placeholder: `Filter ${muscles.length} muscles…`, oninput: () => applyFilter(list, filter.value.trim().toLowerCase()) });
+    mount(list, groups.length ? groups.map(group => {
+      const members = muscles.filter(muscle => muscle.group_id === group.id);
+      const groupForm = itemForm(group);
+      return el('details', { class: 'card', dataset: { key: `g-${group.id}`, section: group.id, name: group.name.toLowerCase() }, open: open.has(`g-${group.id}`) },
+        el('summary', {}, el('span', {}, group.name), el('span', { class: 'tag' }, `${members.length} muscle${members.length === 1 ? '' : 's'}`)),
+        group.description && el('p', { class: 'muted field' }, group.description),
+        members.length
+          ? members.map(muscle => itemCard(muscle, itemForm(muscle, { groups }), `/api/library/muscles/${muscle.id}`, usage[muscle.id] || 0, open, refresh))
+          : el('p', { class: 'muted field' }, 'No muscles in this group yet.'),
+        el('details', { class: 'card', dataset: { key: `e-${group.id}` }, open: open.has(`e-${group.id}`) },
+          el('summary', {}, 'Edit Group'),
+          groupForm.node,
+          editActions(groupForm, { path: `/api/library/muscle-groups/${group.id}`, label: group.name, refresh, warning: usageWarning(usage[group.id] || 0) })),
+      );
+    }) : el('p', { class: 'muted' }, 'No muscle groups yet.'));
+    return [
+      el('div', { class: 'info' }, 'Every muscle belongs to a group. When a muscle is added to an exercise, its group is added too.'),
+      addCard('add-muscle', 'Add Muscle', itemForm({}, { groups }), '/api/library/muscles', open, refresh),
+      addCard('add-group', 'Add Muscle Group', itemForm(), '/api/library/muscle-groups', open, refresh),
+      el('h2', {}, `Muscle Groups (${groups.length})`),
+      el('div', { class: 'field' }, filter),
+      list,
+    ];
+  }
+
+  // Equipment and movement patterns: items sectioned by their type/kind.
+  function choiceTab(tab, library, usage, open, refresh) {
+    const items = library[tab.collection];
+    const choice = { ...tab.choice, values: library[tab.choice.options] };
+    const list = el('div', {});
+    const filter = el('input', { type: 'search', placeholder: `Filter ${items.length} items…`, oninput: () => applyFilter(list, filter.value.trim().toLowerCase()) });
+    mount(list, choice.values.map(value => {
+      const members = items.filter(item => item[choice.key] === value);
+      if (!members.length) return null;
+      return el('details', { class: 'card', dataset: { key: `s-${tab.key}-${value}`, section: value, name: value.toLowerCase() }, open: open.has(`s-${tab.key}-${value}`) },
+        el('summary', {}, el('span', {}, value), el('span', { class: 'tag' }, String(members.length))),
+        members.map(item => itemCard(item, itemForm(item, { choice }), `/api/library/${tab.kind}/${item.id}`, usage[item.id] || 0, open, refresh)));
+    }));
+    return [
+      el('div', { class: 'info' }, tab.intro),
+      addCard(`add-${tab.key}`, `Add ${tab.noun}`, itemForm({}, { choice }), `/api/library/${tab.kind}`, open, refresh),
+      el('h2', {}, `${tab.label} (${items.length})`),
+      el('div', { class: 'field' }, filter),
+      list,
+    ];
+  }
+
+  // How many exercises link to each library id (muscles, groups, equipment, patterns).
+  function usageCounts(exercises) {
+    const counts = {};
+    const fields = ['primary_muscle_ids', 'secondary_muscle_ids', 'primary_group_ids', 'secondary_group_ids', 'equipment_ids', 'movement_pattern_ids'];
+    exercises.forEach(exercise => new Set(fields.flatMap(field => exercise[field] || [])).forEach(id => { counts[id] = (counts[id] || 0) + 1; }));
+    return counts;
+  }
+
+  async function render(main) {
+    const [library, exercises] = await Promise.all([api('GET', '/api/library'), api('GET', '/api/exercises')]);
+    const open = new Set([...main.querySelectorAll('details[open][data-key]')].map(node => node.dataset.key));
+    const active = TABS.find(tab => `#${tab.key}` === location.hash) || TABS[0];
+    const refresh = () => render(main);
+    const usage = usageCounts(exercises);
+    mount(main,
+      el('h1', {}, 'Exercise Library'),
+      el('div', { class: 'chips field' }, TABS.map(tab => el('span', { class: `chip ${tab === active ? 'on' : ''}`, onclick: () => {
+        history.replaceState(null, '', `#${tab.key}`);
+        render(main);
+      } }, tab.label))),
+      active.key === 'muscles' ? musclesTab(library, usage, open, refresh) : choiceTab(active, library, usage, open, refresh),
+    );
+  }
+
+  boot('library', main => render(main).catch(err => mount(main, el('div', { class: 'error' }, err.message))), { coachOnly: true });
+</script>
+</body>
+</html>

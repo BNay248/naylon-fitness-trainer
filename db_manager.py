@@ -17,6 +17,22 @@ def to_object_id(value: str) -> Optional[ObjectId]:
 MUSCLE_FIELDS = ["primary_muscle_ids", "secondary_muscle_ids"]
 GROUP_FIELDS = ["primary_group_ids", "secondary_group_ids"]
 ADDED_GROUP_FIELDS = ["added_primary_group_ids", "added_secondary_group_ids"]
+# Other library links: equipment used, movement patterns, and the next-harder exercises (easier ones are the reverse links).
+LINK_FIELDS = ["equipment_ids", "movement_pattern_ids", "progression_ids"]
+EQUIPMENT_TYPES = ["Free Weight", "Machine", "Cable", "Bodyweight", "Accessory", "Cardio"]
+PATTERN_KINDS = ["Compound", "Isolation", "Core", "Power", "Skill", "Mobility", "Conditioning"]
+
+
+def unique(values) -> List[str]:
+    return list(dict.fromkeys(values))
+
+
+def with_groups(fields: Dict, group_of: Dict[str, str]) -> Dict:
+    """Fills the worked groups: groups added directly plus each muscle's group. Primary beats secondary."""
+    primary = unique(fields["added_primary_group_ids"] + [group_of[m] for m in fields["primary_muscle_ids"] if m in group_of])
+    secondary = [group for group in unique(fields["added_secondary_group_ids"] + [group_of[m] for m in fields["secondary_muscle_ids"] if m in group_of])
+                 if group not in primary]
+    return {**fields, "primary_group_ids": primary, "secondary_group_ids": secondary}
 
 
 class TrainerDB:
@@ -31,7 +47,7 @@ class TrainerDB:
         self.db.sessions.create_index("client_id", sparse=True)
         self.db.sessions.create_index("assignees", sparse=True)
         self.db.muscles.create_index("group_id")
-        for field in MUSCLE_FIELDS + GROUP_FIELDS:
+        for field in MUSCLE_FIELDS + GROUP_FIELDS + LINK_FIELDS:
             self.db.exercises.create_index(field, sparse=True)
 
     # Exercise methods
@@ -76,46 +92,28 @@ class TrainerDB:
     def pull_from_exercises(self, fields: List[str], value: str) -> None:
         self.db.exercises.update_many({}, {"$pull": {field: value for field in fields}})
 
-    # Muscle group methods
-    def add_muscle_group(self, group_data: Dict) -> str:
-        return str(self.db.muscle_groups.insert_one(group_data).inserted_id)
+    # Library collections (muscle_groups, muscles, equipment, movement_patterns): named documents
+    # that exercises reference by id. Every muscle belongs to one group via group_id.
+    def add_item(self, collection: str, data: Dict) -> str:
+        return str(self.db[collection].insert_one(data).inserted_id)
 
-    def get_muscle_group(self, group_id: str) -> Optional[Dict]:
-        oid = to_object_id(group_id)
-        return self.db.muscle_groups.find_one({"_id": oid}) if oid else None
+    def get_item(self, collection: str, item_id: str) -> Optional[Dict]:
+        oid = to_object_id(item_id)
+        return self.db[collection].find_one({"_id": oid}) if oid else None
 
-    def get_all_muscle_groups(self) -> List[Dict]:
-        return sorted(self.db.muscle_groups.find(), key=lambda item: str(item.get("name", "")).lower())
+    def get_items(self, collection: str) -> List[Dict]:
+        return sorted(self.db[collection].find(), key=lambda item: str(item.get("name", "")).lower())
 
-    def update_muscle_group(self, group_id: str, updates: Dict) -> bool:
-        oid = to_object_id(group_id)
-        return bool(oid) and self.db.muscle_groups.update_one({"_id": oid}, {"$set": updates}).matched_count > 0
+    def count_items(self, collection: str, query: Dict) -> int:
+        return self.db[collection].count_documents(query)
 
-    def delete_muscle_group(self, group_id: str) -> bool:
-        oid = to_object_id(group_id)
-        return bool(oid) and self.db.muscle_groups.delete_one({"_id": oid}).deleted_count > 0
+    def update_item(self, collection: str, item_id: str, updates: Dict) -> bool:
+        oid = to_object_id(item_id)
+        return bool(oid) and self.db[collection].update_one({"_id": oid}, {"$set": updates}).matched_count > 0
 
-    # Muscle methods (every muscle belongs to one group via group_id)
-    def add_muscle(self, muscle_data: Dict) -> str:
-        return str(self.db.muscles.insert_one(muscle_data).inserted_id)
-
-    def get_muscle(self, muscle_id: str) -> Optional[Dict]:
-        oid = to_object_id(muscle_id)
-        return self.db.muscles.find_one({"_id": oid}) if oid else None
-
-    def get_all_muscles(self) -> List[Dict]:
-        return sorted(self.db.muscles.find(), key=lambda item: str(item.get("name", "")).lower())
-
-    def count_muscles_in_group(self, group_id: str) -> int:
-        return self.db.muscles.count_documents({"group_id": group_id})
-
-    def update_muscle(self, muscle_id: str, updates: Dict) -> bool:
-        oid = to_object_id(muscle_id)
-        return bool(oid) and self.db.muscles.update_one({"_id": oid}, {"$set": updates}).matched_count > 0
-
-    def delete_muscle(self, muscle_id: str) -> bool:
-        oid = to_object_id(muscle_id)
-        return bool(oid) and self.db.muscles.delete_one({"_id": oid}).deleted_count > 0
+    def delete_item(self, collection: str, item_id: str) -> bool:
+        oid = to_object_id(item_id)
+        return bool(oid) and self.db[collection].delete_one({"_id": oid}).deleted_count > 0
 
     # Legacy client/coach profile collections (kept in sync for the Streamlit branch)
     def add_client(self, client_data: Dict) -> str:
