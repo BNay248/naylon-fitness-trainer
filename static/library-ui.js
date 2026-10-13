@@ -4,7 +4,8 @@ const LEVELS = ['beginner', 'intermediate', 'advanced'];
 const levelLabel = level => level ? level[0].toUpperCase() + level.slice(1) : '';
 
 // A collapsible set of on/off chips in labelled sections ([{label, items}]); returns {node, read(), set(ids), reset()}.
-function chipPicker(title, sections, selectedIds) {
+// onChange(ids) runs after every toggle.
+function chipPicker(title, sections, selectedIds, onChange = () => {}) {
   const selected = new Set(selectedIds || []);
   const summary = el('span', { class: 'muted' });
   const chips = [];
@@ -18,6 +19,7 @@ function chipPicker(title, sections, selectedIds) {
       const chip = el('span', { class: 'chip', title: item.description || '', onclick: () => {
         selected.has(item.id) ? selected.delete(item.id) : selected.add(item.id);
         draw();
+        onChange([...selected]);
       } }, item.name);
       chips.push({ chip, item });
       return chip;
@@ -41,3 +43,15 @@ const equipmentPicker = (library, selectedIds, title = 'Equipment') =>
 
 // Difficulty level <select>.
 const levelSelect = current => el('select', {}, LEVELS.map(level => el('option', { value: level, selected: level === current }, levelLabel(level))));
+
+// Client-side mirror of the server's matches_rules: AND across rule keys, OR within one; an empty key doesn't
+// constrain; equipment means "uses only these". Needs exercise.pattern_kinds (from /api/exercises).
+function matchesRules(rules, exercise) {
+  const anyOf = (key, values) => !(rules[key] || []).length || (values || []).some(value => rules[key].includes(value));
+  const equipment = rules.equipment_ids || [];
+  return anyOf('muscle_group_ids', exercise.primary_group_ids)
+    && anyOf('muscle_ids', exercise.primary_muscle_ids)
+    && anyOf('movement_pattern_ids', exercise.movement_pattern_ids)
+    && anyOf('pattern_kinds', exercise.pattern_kinds)
+    && (!equipment.length || (exercise.equipment_ids || []).every(id => equipment.includes(id)));
+}

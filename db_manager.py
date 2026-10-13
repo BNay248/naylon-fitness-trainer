@@ -50,6 +50,9 @@ class TrainerDB:
         self.db.muscles.create_index("group_id")
         for field in MUSCLE_FIELDS + GROUP_FIELDS + LINK_FIELDS:
             self.db.exercises.create_index(field, sparse=True)
+        self.db.templates.create_index("coach_username")
+        self.db.templates.create_index("assignees", sparse=True)
+        self.db.template_picks.create_index([("template_id", ASCENDING), ("username", ASCENDING)], unique=True)
 
     # Exercise methods
     def add_exercise(self, exercise_data: Dict) -> str:
@@ -197,6 +200,31 @@ class TrainerDB:
     def delete_session(self, session_id: str) -> bool:
         oid = to_object_id(session_id)
         return bool(oid) and self.db.sessions.delete_one({"_id": oid}).deleted_count > 0
+
+    # Template methods (coach-written slot recipes clients fill in; see the build plan)
+    def add_template(self, template_data: Dict) -> str:
+        template_data["created_at"] = template_data["updated_at"] = datetime.now()
+        return str(self.db.templates.insert_one(template_data).inserted_id)
+
+    def get_template(self, template_id: str) -> Optional[Dict]:
+        oid = to_object_id(template_id)
+        return self.db.templates.find_one({"_id": oid}) if oid else None
+
+    def get_templates_for_user(self, username: str, coaches: List[str]) -> List[Dict]:
+        """Templates a user owns, is assigned, or that one of their coaches published."""
+        found = self.db.templates.find({"$or": [{"coach_username": username}, {"assignees": username},
+                                                {"published": True, "coach_username": {"$in": list(coaches)}}]})
+        return sorted(found, key=lambda item: str(item.get("name", "")).lower())
+
+    def update_template(self, template_id: str, updates: Dict) -> bool:
+        oid = to_object_id(template_id)
+        updates["updated_at"] = datetime.now()
+        return bool(oid) and self.db.templates.update_one({"_id": oid}, {"$set": updates, "$inc": {"version": 1}}).matched_count > 0
+
+    def delete_template(self, template_id: str) -> bool:
+        oid = to_object_id(template_id)
+        self.db.template_picks.delete_many({"template_id": template_id})
+        return bool(oid) and self.db.templates.delete_one({"_id": oid}).deleted_count > 0
 
     # Workout log methods (one document per completed/saved workout)
     def add_workout_log(self, session: Dict, supersets: List[Dict], logged_by: str,

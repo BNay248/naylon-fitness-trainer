@@ -1,5 +1,6 @@
 import math
 import os
+import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
@@ -324,7 +325,7 @@ def serialize_exercise(exercise: Dict) -> Dict:
 
 PAGES = {"/": "index.html", "/exercises": "exercises.html", "/clients": "clients.html",
          "/coaches": "coaches.html", "/profile": "profile.html", "/admin": "admin.html",
-         "/library": "library.html"}
+         "/library": "library.html", "/templates": "templates.html"}
 
 for route, filename in PAGES.items():
     app.add_api_route(route, (lambda filename=filename: FileResponse(f"static/{filename}")), methods=["GET"], include_in_schema=False)
@@ -697,6 +698,153 @@ def delete_library_item(kind: str, item_id: str, user: Dict = Depends(coach_user
     db.pull_from_exercises(spec["exercise_fields"], item_id)
     if kind == "muscles":
         refresh_exercise_groups(db.get_exercises_by_ids(affected))
+    return {"ok": True}
+
+# ==================== TEMPLATES ====================
+# A coach's recipe of slots that clients fill from suggestions (the build plan).
+
+SLOT_MODES = ["locked", "shortlist", "open"]
+REOPEN_MODES = ["remember", "fresh"]
+# Slot rule key -> library collection its ids come from (pattern_kinds hold PATTERN_KINDS names instead).
+RULE_COLLECTIONS = {"muscle_group_ids": "muscle_groups", "muscle_ids": "muscles",
+                    "movement_pattern_ids": "movement_patterns", "equipment_ids": "equipment"}
+MAX_SHORTLIST = 30
+
+
+class TemplateRequest(BaseModel):
+    name: str
+    description: str = ""
+    reopen: str = "remember"
+    published: bool = False
+    supersets: List[Dict]
+
+
+class TemplateAssignRequest(BaseModel):
+    usernames: List[str]
+
+
+def pattern_kind_lookup() -> Dict[str, str]:
+    return {str(pattern["_id"]): pattern.get("kind") for pattern in db.get_items("movement_patterns")}
+
+
+def matches_rules(rules: Dict, exercise: Dict, kind_of: Dict[str, str]) -> bool:
+    """AND across rule keys, OR within one; an empty key doesn't constrain. Equipment means "uses only these"."""
+    def any_of(key: str, values) -> bool:
+        return not rules.get(key) or bool(set(rules[key]) & set(values or []))
+    return (any_of("muscle_group_ids", exercise.get("primary_group_ids"))
+            and any_of("muscle_ids", exercise.get("primary_muscle_ids"))
+            and any_of("movement_pattern_ids", exercise.get("movement_pattern_ids"))
+            and any_of("pattern_kinds", [kind_of.get(i) for i in exercise.get("movement_pattern_ids") or []])
+            and (not rules.get("equipment_ids") or set(exercise.get("equipment_ids") or []) <= set(rules["equipment_ids"])))
+
+
+def clean_slot(raw: Dict, visible: Dict[str, Dict], known: Dict[str, set]) -> Dict:
+    label = str(raw.get("label") or "").strip()[:60]
+    name = f'Slot "{label}"' if label else "A slot"
+    mode = raw.get("mode")
+    if mode not in SLOT_MODES:
+        raise HTTPException(status_code=400, detail=f"{name}: choose locked, shortlist or open")
+    raw_rules = raw.get("rules") if isinstance(raw.get("rules"), dict) else {}
+    rules = {key: unique(str(i) for i in raw_rules.get(key) or [] if str(i) in known[key]) for key in RULE_COLLECTIONS}
+    rules["pattern_kinds"] = unique(kind for kind in raw_rules.get("pattern_kinds") or [] if kind in PATTERN_KINDS)
+    slot = {"label": label, "mode": mode, "exercise_id": None, "shortlist_ids": [], "rules": rules,
+            "note": clean_note(raw.get("note")), "targets": clean_targets(raw.get("targets"), POSSIBLE_METRICS)}
+    if mode == "locked":
+        if str(raw.get("exercise_id") or "") not in visible:
+            raise HTTPException(status_code=400, detail=f"{name}: choose the exercise")
+        slot["exercise_id"] = str(raw["exercise_id"])
+    elif mode == "shortlist":
+        slot["shortlist_ids"] = unique(str(i) for i in raw.get("shortlist_ids") or [] if str(i) in visible)[:MAX_SHORTLIST]
+        if not slot["shortlist_ids"]:
+            raise HTTPException(status_code=400, detail=f"{name}: add at least one exercise to the shortlist")
+    elif not any(rules.values()):
+        raise HTTPException(status_code=400, detail=f"{name}: add at least one rule")
+    return slot
+
+
+def clean_template(req: TemplateRequest, coach: str) -> Dict:
+    name = req.name.strip()[:100]
+    if not name:
+        raise HTTPException(status_code=400, detail="Please enter a template name")
+    visible = {str(item["_id"]): item for item in db.get_visible_exercises([coach])}
+    known = {key: ids_in(collection) for key, collection in RULE_COLLECTIONS.items()}
+    seen, supersets = set(), []
+    for raw in req.supersets if isinstance(req.supersets, list) else []:
+        slots = []
+        for raw_slot in raw.get("slots") or [] if isinstance(raw, dict) else []:
+            if not isinstance(raw_slot, dict):
+                continue
+            slot = clean_slot(raw_slot, visible, known)
+            # Stable ids: remembered picks are keyed on them, so edits keep them.
+            slot_id = str(raw_slot.get("slot_id") or "")[:16]
+            slot["slot_id"] = slot_id if slot_id and slot_id not in seen else uuid.uuid4().hex[:8]
+            seen.add(slot["slot_id"])
+            slots.append(slot)
+        if slots:
+            supersets.append({"repeats": clamp_repeats(raw.get("repeats")), "slots": slots})
+    if not supersets:
+        raise HTTPException(status_code=400, detail="Please add at least one slot")
+    return {"name": name, "description": str(req.description or "").strip()[:500],
+            "reopen": req.reopen if req.reopen in REOPEN_MODES else "remember", "published": bool(req.published),
+            "supersets": supersets}
+
+
+def serialize_template(template: Dict, user: Dict) -> Dict:
+    return {
+        "id": str(template["_id"]),
+        "name": template.get("name", ""),
+        "description": template.get("description", ""),
+        "coach_username": template.get("coach_username"),
+        "assignees": template.get("assignees") or [],
+        "published": bool(template.get("published")),
+        "reopen": template.get("reopen", "remember"),
+        "version": template.get("version", 0),
+        "supersets": template.get("supersets", []),
+        "can_edit": template.get("coach_username") == user["username"],
+    }
+
+
+def get_own_template(template_id: str, user: Dict) -> Dict:
+    template = db.get_template(template_id)
+    if not template or template.get("coach_username") != user["username"]:
+        raise HTTPException(status_code=404, detail="Template not found")
+    return template
+
+
+@app.get("/api/templates")
+def list_templates(user: Dict = Depends(current_user)):
+    return [serialize_template(template, user) for template in db.get_templates_for_user(user["username"], user.get("coaches") or [])]
+
+
+@app.post("/api/templates")
+def create_template(req: TemplateRequest, user: Dict = Depends(coach_user)):
+    template = {**clean_template(req, user["username"]), "coach_username": user["username"], "assignees": [], "version": 0}
+    return {"id": db.add_template(template)}
+
+
+@app.put("/api/templates/{template_id}")
+def update_template(template_id: str, req: TemplateRequest, user: Dict = Depends(coach_user)):
+    """Clients' saved sessions are separate copies, so editing a template never changes them."""
+    get_own_template(template_id, user)
+    db.update_template(template_id, clean_template(req, user["username"]))
+    return {"ok": True}
+
+
+@app.delete("/api/templates/{template_id}")
+def delete_template(template_id: str, user: Dict = Depends(coach_user)):
+    get_own_template(template_id, user)
+    db.delete_template(template_id)
+    return {"ok": True}
+
+
+@app.post("/api/templates/{template_id}/assign")
+def assign_template(template_id: str, req: TemplateAssignRequest, user: Dict = Depends(coach_user)):
+    """Sets exactly who the template is assigned to (only the coach's clients)."""
+    get_own_template(template_id, user)
+    clients = set(user.get("clients") or [])
+    if any(name not in clients for name in req.usernames):
+        raise HTTPException(status_code=400, detail="You can only assign templates to your clients")
+    db.update_template(template_id, {"assignees": unique(req.usernames)})
     return {"ok": True}
 
 # ==================== SESSIONS ====================

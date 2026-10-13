@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Templates · Naylon Fitness Portal</title>
+<link rel="icon" href="/static/NFP.jpg">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="container"></div>
+<div id="toasts"></div>
+<script src="/static/common.js"></script>
+<script src="/static/session-ui.js"></script>
+<script src="/static/library-ui.js"></script>
+<script>
+  // Coach page: templates are recipes of slots that clients fill from suggestions.
+  const MODES = [
+    { key: 'open', label: 'Open', help: 'Clients pick any exercise matching the rules; the best matches are suggested first.' },
+    { key: 'shortlist', label: 'Shortlist', help: 'Clients pick from the exercises you list.' },
+    { key: 'locked', label: 'Locked', help: 'Everyone does this exact exercise.' },
+  ];
+  const TARGET_METRICS = ['Reps', 'Weight', 'Duration', 'Distance'];
+  const RULE_KEYS = ['muscle_group_ids', 'muscle_ids', 'movement_pattern_ids', 'equipment_ids', 'pattern_kinds'];
+
+  const blankRules = () => Object.fromEntries(RULE_KEYS.map(key => [key, []]));
+  const blankSlot = () => ({ slot_id: '', label: '', mode: 'open', exercise_id: '', shortlist_ids: [], rules: blankRules(), note: '', targets: {} });
+  const blankTemplate = () => ({ name: '', description: '', reopen: 'remember', published: false, supersets: [{ repeats: 3, slots: [blankSlot()] }] });
+
+  // Sections for each rule picker, built from the library.
+  function ruleSections(catalog) {
+    const lib = catalog.library;
+    return {
+      muscle_group_ids: ['Muscle groups', [{ label: 'Groups', items: lib.muscle_groups }]],
+      muscle_ids: ['Muscles', lib.muscle_groups.map(group => ({ label: group.name, items: lib.muscles.filter(muscle => muscle.group_id === group.id) }))],
+      movement_pattern_ids: ['Movement patterns', bySection(lib.movement_patterns, 'kind', lib.pattern_kinds)],
+      equipment_ids: ['Equipment (uses only these)', bySection(lib.equipment, 'type', lib.equipment_types)],
+      pattern_kinds: ['Exercise kinds', [{ label: 'Kinds', items: lib.pattern_kinds.map(kind => ({ id: kind, name: kind })) }]],
+    };
+  }
+
+  // What a slot asks for, in words: "Chest · Horizontal Push · Dumbbell, Cable".
+  function rulesText(rules, catalog) {
+    const lib = catalog.library;
+    const lists = { muscle_group_ids: lib.muscle_groups, muscle_ids: lib.muscles, movement_pattern_ids: lib.movement_patterns, equipment_ids: lib.equipment };
+    return RULE_KEYS.map(key => (rules[key] || []).map(id => key === 'pattern_kinds' ? id : (lists[key].find(item => item.id === id) || {}).name)
+      .filter(Boolean).join(' or ')).filter(Boolean).join(' · ');
+  }
+
+  const matching = (rules, catalog) => catalog.exercises.filter(exercise => matchesRules(rules, exercise));
+  const nameOf = (id, catalog) => (catalog.byId[id] || {}).name || 'Unknown exercise';
+
+  function slotSummary(slot, catalog) {
+    if (slot.mode === 'locked') return nameOf(slot.exercise_id, catalog);
+    if (slot.mode === 'shortlist') return `Pick from: ${slot.shortlist_ids.map(id => nameOf(id, catalog)).join(', ')}`;
+    return `Any: ${rulesText(slot.rules, catalog)} (${matching(slot.rules, catalog).length} exercises)`;
+  }
+
+  // ---------- Builder ----------
+
+  function templateBuilder({ catalog, initial, saveLabel, onSave, onCancel }) {
+    const state = initial ? clone(initial) : blankTemplate();
+    state.supersets.forEach(superset => superset.slots.forEach(slot => { slot.rules = { ...blankRules(), ...slot.rules }; }));
+    const root = el('div', { class: 'builder' });
+    const exerciseOptions = (selected, exclude = []) => [
+      el('option', { value: '' }, 'Choose exercise…'),
+      catalog.exercises.filter(item => !exclude.includes(item.id)).map(item => el('option', { value: item.id, selected: item.id === selected }, item.name)),
+    ];
+
+    function preview(slot) {
+      const node = el('p', { class: 'muted field' });
+      const draw = () => {
+        if (slot.mode !== 'open') return mount(node);
+        if (!RULE_KEYS.some(key => slot.rules[key].length)) return mount(node, 'Add at least one rule.');
+        const found = matching(slot.rules, catalog);
+        node.classList.toggle('error', !found.length);
+        mount(node, found.length
+          ? `${found.length} exercise${found.length === 1 ? '' : 's'} match: ${found.slice(0, 6).map(item => item.name).join(', ')}${found.length > 6 ? ', …' : ''}`
+          : 'No exercises match these rules.');
+      };
+      draw();
+      return { node, draw };
+    }
+
+    function modeBody(slot, refresh) {
+      if (slot.mode === 'locked') {
+        return el('div', { class: 'field' }, el('select', { onchange: e => { slot.exercise_id = e.target.value; } }, exerciseOptions(slot.exercise_id)));
+      }
+      if (slot.mode === 'shortlist') {
+        const chips = el('div', { class: 'chips field' }, slot.shortlist_ids.map(id => el('span', { class: 'chip on', title: 'Remove', onclick: () => {
+          slot.shortlist_ids = slot.shortlist_ids.filter(other => other !== id);
+          refresh();
+        } }, `${nameOf(id, catalog)} ✕`)));
+        return el('div', {}, chips, el('select', { onchange: e => {
+          if (e.target.value) slot.shortlist_ids.push(e.target.value);
+          refresh();
+        } }, exerciseOptions('', slot.shortlist_ids)));
+      }
+      const shown = preview(slot);
+      const sections = ruleSections(catalog);
+      return el('div', {},
+        el('p', { class: 'muted field' }, 'Different rules must all match; several picks within one rule are either/or.'),
+        RULE_KEYS.map(key => chipPicker(sections[key][0], sections[key][1], slot.rules[key], ids => { slot.rules[key] = ids; shown.draw(); }).node),
+        shown.node);
+    }
+
+    function targetsPanel(slot) {
+      return el('details', { class: 'card' },
+        el('summary', {}, 'Targets & note'),
+        el('p', { class: 'muted field' }, 'Targets apply to whichever exercise is picked, if it tracks that metric.'),
+        el('div', { class: 'metric-grid targets-grid field' }, TARGET_METRICS.map(metric => el('div', {},
+          el('label', {}, metric),
+          numberStepper(slot.targets[metric] ?? null, value => { value ? slot.targets[metric] = value : delete slot.targets[metric]; }, { placeholder: '' })))),
+        el('input', { type: 'text', placeholder: 'Note for the client (optional)', value: slot.note, oninput: e => { slot.note = e.target.value; } }));
+    }
+
+    function slotEditor(superset, slot, index) {
+      const node = el('div', { class: 'builder-exercise' });
+      const refresh = () => mount(node, ...content());
+      const content = () => [
+        el('div', { class: 'row field' },
+          el('input', { class: 'grow', type: 'text', placeholder: `Slot ${index + 1} label, e.g. "Upper push"`, value: slot.label, oninput: e => { slot.label = e.target.value; } }),
+          el('button', { type: 'button', class: 'small danger', onclick: () => { superset.slots.splice(index, 1); render(); } }, 'Remove')),
+        el('div', { class: 'chips field' }, MODES.map(mode => el('span', {
+          class: `chip ${slot.mode === mode.key ? 'on' : ''}`, onclick: () => { slot.mode = mode.key; refresh(); },
+        }, mode.label))),
+        el('p', { class: 'muted field' }, MODES.find(mode => mode.key === slot.mode).help),
+        modeBody(slot, refresh),
+        targetsPanel(slot),
+      ];
+      refresh();
+      return node;
+    }
+
+    function render() {
+      mount(root,
+        el('div', { class: 'field' }, el('label', {}, 'Template name*'),
+          el('input', { type: 'text', value: state.name, oninput: e => { state.name = e.target.value; } })),
+        el('div', { class: 'field' }, el('label', {}, 'Description (optional)'),
+          el('textarea', { oninput: e => { state.description = e.target.value; } }, state.description)),
+        el('div', { class: 'field' }, el('label', {}, 'When a client opens it again'),
+          el('select', { onchange: e => { state.reopen = e.target.value; } },
+            el('option', { value: 'remember', selected: state.reopen === 'remember' }, 'Start from their last picks'),
+            el('option', { value: 'fresh', selected: state.reopen === 'fresh' }, 'Start from fresh suggestions'))),
+        el('label', { class: 'check' }, el('input', { type: 'checkbox', checked: state.published, onchange: e => { state.published = e.target.checked; } }),
+          'Publish to my library (all my clients can use it)'),
+        state.supersets.map((superset, supersetIdx) => el('div', { class: 'superset' },
+          el('div', { class: 'superset-head' },
+            el('span', { class: 'grow' }, `Superset ${supersetIdx + 1}`),
+            el('span', { class: 'muted' }, 'Rounds'),
+            numberStepper(superset.repeats, value => { superset.repeats = value; }, { min: 1, max: 20, integer: true })),
+          superset.slots.map((slot, index) => slotEditor(superset, slot, index)),
+          el('div', { class: 'buttons' },
+            el('button', { type: 'button', onclick: () => { superset.slots.push(blankSlot()); render(); } }, 'Add Slot'),
+            state.supersets.length > 1 && el('button', { type: 'button', class: 'danger', onclick: () => { state.supersets.splice(supersetIdx, 1); render(); } }, 'Remove Superset')))),
+        el('div', { class: 'buttons' },
+          el('button', { type: 'button', onclick: () => { state.supersets.push({ repeats: 3, slots: [blankSlot()] }); render(); } }, 'Add Superset')),
+        el('div', { class: 'buttons' },
+          el('button', { class: 'primary', onclick: e => withBusy(e.currentTarget, () => {
+            if (!state.name.trim()) return toast('Please enter a template name', 'error');
+            return onSave(state);
+          }) }, saveLabel),
+          onCancel && el('button', { type: 'button', onclick: onCancel }, 'Cancel')));
+    }
+    render();
+    return root;
+  }
+
+  // ---------- List ----------
+
+  function templateCard(template, { catalog, clients, refresh }) {
+    let mode = 'view';
+    const assigning = new Set(template.assignees);
+    const card = el('details', { class: 'card', dataset: { key: template.id } });
+    const tags = () => [
+      template.published && el('span', { class: 'tag' }, 'Published'),
+      template.assignees.length > 0 && el('span', { class: 'tag' }, `${template.assignees.length} assigned`),
+    ];
+    const summary = el('summary', {}, el('span', {}, template.name), ...tags());
+
+    function view() {
+      return el('div', {},
+        template.description && el('p', { class: 'pre-wrap field' }, template.description),
+        el('p', { class: 'muted field' }, template.reopen === 'remember' ? 'Re-opens with the client\'s last picks.' : 'Re-opens with fresh suggestions.'),
+        template.supersets.map((superset, idx) => el('div', { class: 'superset' },
+          el('div', { class: 'superset-head' }, `Superset ${idx + 1} · ${superset.repeats} round(s)`),
+          superset.slots.map(slot => el('div', { class: 'exercise-log' },
+            el('div', { class: 'name' }, slot.label || 'Slot', el('span', { class: 'tag' }, slot.mode)),
+            el('div', { class: 'muted' }, slotSummary(slot, catalog)),
+            (Object.keys(slot.targets).length > 0 || slot.note) && el('div', { class: 'exercise-note' },
+              [Object.entries(slot.targets).map(([metric, value]) => `${metric} ${value}`).join(', '), slot.note].filter(Boolean).join(' — ')))))),
+        el('div', { class: 'buttons' },
+          el('button', { onclick: () => { mode = 'edit'; draw(); } }, 'Edit'),
+          el('button', { onclick: () => { mode = 'assign'; draw(); } }, 'Assign to Clients'),
+          el('button', { class: 'danger', onclick: () => { mode = 'delete'; draw(); } }, 'Delete')));
+    }
+
+    function assignPanel() {
+      return el('div', { class: 'confirm' },
+        el('div', {}, 'Assign this template to:'),
+        clients.length ? clients.map(client => el('label', { class: 'check' },
+          el('input', { type: 'checkbox', checked: assigning.has(client.username), onchange: e => {
+            e.target.checked ? assigning.add(client.username) : assigning.delete(client.username);
+          } }), `${client.name} (${client.username})`)) : el('p', { class: 'muted' }, 'No clients yet.'),
+        el('div', { class: 'buttons' },
+          el('button', { class: 'primary', onclick: e => withBusy(e.currentTarget, async () => {
+            await api('POST', `/api/templates/${template.id}/assign`, { usernames: [...assigning] });
+            toast('Assignments saved');
+            await refresh();
+          }) }, 'Save'),
+          el('button', { onclick: () => { mode = 'view'; draw(); } }, 'Cancel')));
+    }
+
+    function draw() {
+      if (mode === 'edit') {
+        return mount(card, summary, templateBuilder({ catalog, initial: template, saveLabel: 'Save Template',
+          onSave: async state => {
+            await api('PUT', `/api/templates/${template.id}`, state);
+            toast('Template saved. Clients\' saved sessions are not affected.');
+            await refresh();
+          },
+          onCancel: () => { mode = 'view'; draw(); } }));
+      }
+      if (mode === 'assign') return mount(card, summary, view(), assignPanel());
+      if (mode === 'delete') {
+        return mount(card, summary, el('div', { class: 'confirm' },
+          `Delete "${template.name}"? Workouts already logged and sessions clients saved are kept.`,
+          el('div', { class: 'buttons' },
+            el('button', { class: 'danger', onclick: e => withBusy(e.currentTarget, async () => {
+              await api('DELETE', `/api/templates/${template.id}`);
+              toast('Template deleted');
+              await refresh();
+            }) }, 'Yes, delete'),
+            el('button', { onclick: () => { mode = 'view'; draw(); } }, 'Cancel'))));
+      }
+      mount(card, summary, view());
+    }
+    draw();
+    return card;
+  }
+
+  async function render(main) {
+    const [templates, exercises, library, clientData] = await Promise.all([
+      api('GET', '/api/templates'), api('GET', '/api/exercises'), api('GET', '/api/library'), api('GET', '/api/clients'),
+    ]);
+    const catalog = { exercises, library, byId: Object.fromEntries(exercises.map(item => [item.id, item])) };
+    const open = new Set([...main.querySelectorAll('details[open][data-key]')].map(node => node.dataset.key));
+    const refresh = () => render(main);
+    const mine = templates.filter(template => template.can_edit);
+    mount(main,
+      el('h1', {}, 'Templates'),
+      el('div', { class: 'info' }, 'A template is a recipe of slots. Clients fill each slot from suggestions that fit their level and equipment, then train it like a session.'),
+      el('details', { class: 'card', dataset: { key: 'create' }, open: open.has('create') },
+        el('summary', {}, 'Create Template'),
+        templateBuilder({ catalog, saveLabel: 'Create Template', onSave: async state => {
+          await api('POST', '/api/templates', state);
+          toast('Template created');
+          main.querySelector('details[data-key="create"]').open = false;
+          await refresh();
+        } })),
+      el('h2', {}, `Your Templates (${mine.length})`),
+      mine.length ? mine.map(template => {
+        const card = templateCard(template, { catalog, clients: clientData.clients, refresh });
+        card.open = open.has(template.id);
+        return card;
+      }) : el('p', { class: 'muted' }, 'No templates yet.'));
+  }
+
+  boot('templates', main => render(main).catch(err => mount(main, el('div', { class: 'error' }, err.message))), { coachOnly: true });
+</script>
+</body>
+</html>

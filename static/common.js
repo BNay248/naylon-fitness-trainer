@@ -87,6 +87,7 @@ function renderNav(active) {
     ['sessions', '/', 'Sessions'],
     ['exercises', '/exercises', 'Exercises'],
     ME.role === 'coach' && ['library', '/library', 'Library'],
+    ME.role === 'coach' && ['templates', '/templates', 'Templates'],
     ME.role === 'coach' && ['clients', '/clients', 'Clients'],
     ['coaches', '/coaches', 'Coaches'],
     ['profile', '/profile', 'Profile'],
