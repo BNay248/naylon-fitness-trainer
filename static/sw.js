@@ -1,4 +1,4 @@
-const CACHE_NAME = 'trainer-shell-v11';
+const CACHE_NAME = 'trainer-shell-v12';
 const PAGES = ['/', '/exercises', '/clients', '/coaches', '/profile', '/admin', '/library', '/templates'];
 const CORE_ASSETS = [
   ...PAGES,
@@ -6,6 +6,7 @@ const CORE_ASSETS = [
   '/static/common.js',
   '/static/session-ui.js',
   '/static/library-ui.js',
+  '/static/template-run.js',
   '/static/offline.js',
   '/static/manifest.json',
   '/static/NFP.jpg',

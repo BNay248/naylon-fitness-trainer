@@ -1,6 +1,6 @@
 // Offline support for the Sessions page.
 //
-// Every session change (create, edit, delete, log workout) is written to a per-user queue in localStorage first,
+// Every session change (create, edit, delete, log workout, log a template workout) is written to a per-user queue in localStorage first,
 // shown immediately by overlaying the queue on the last data fetched from the server, and then sent in order.
 // Anything the server rejects (e.g. an athlete's edit that lost to a newer coach edit) is dropped with a notice.
 
@@ -164,6 +164,10 @@ function flushQueue(onNotice, onRecords = () => {}) {
         else if (!result.session_updated) onNotice(`"${name}" was changed before your workout synced, so it was saved to history only.`);
         if (result.prs?.length) onRecords(result.prs, op.body.user_id);
       }
+      if (!drop && op.kind === 'template_log') {
+        if (result.template_deleted) onNotice(`"${op.body.session_name}" was deleted before your workout synced. The workout was still recorded.`);
+        if (result.prs?.length) onRecords(result.prs, op.body.user_id);
+      }
     }
   })().finally(() => { flushing = null; SyncQueue.inFlight = null; });
   return flushing;
@@ -177,6 +181,7 @@ function sendOp(op) {
     case 'delete': return api('DELETE', `/api/sessions/${id}?base_version=${op.base_version}${op.athlete ? `&athlete=${encodeURIComponent(op.athlete)}` : ''}`);
     case 'assign': return api('POST', `/api/sessions/${id}/assign`, op.body);
     case 'log': return api('POST', `/api/sessions/${id}/log`, { ...op.body, client_id: op.id });
+    case 'template_log': return api('POST', `/api/templates/${encodeURIComponent(op.template_id)}/log`, { ...op.body, client_id: op.id });
   }
   return Promise.resolve();
 }

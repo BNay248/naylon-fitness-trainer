@@ -725,14 +725,15 @@ def pattern_kind_lookup() -> Dict[str, str]:
 
 
 def matches_rules(rules: Dict, exercise: Dict, kind_of: Dict[str, str]) -> bool:
-    """AND across rule keys, OR within one; an empty key doesn't constrain. Equipment means "uses only these"."""
+    """AND across rule keys, OR within one; an empty key doesn't constrain. An equipment rule means "uses some of
+    these and nothing else" (so a barbell slot doesn't match bodyweight stretches)."""
     def any_of(key: str, values) -> bool:
         return not rules.get(key) or bool(set(rules[key]) & set(values or []))
     return (any_of("muscle_group_ids", exercise.get("primary_group_ids"))
             and any_of("muscle_ids", exercise.get("primary_muscle_ids"))
             and any_of("movement_pattern_ids", exercise.get("movement_pattern_ids"))
             and any_of("pattern_kinds", [kind_of.get(i) for i in exercise.get("movement_pattern_ids") or []])
-            and (not rules.get("equipment_ids") or set(exercise.get("equipment_ids") or []) <= set(rules["equipment_ids"])))
+            and (not rules.get("equipment_ids") or bool(exercise.get("equipment_ids")) and set(exercise["equipment_ids"]) <= set(rules["equipment_ids"])))
 
 
 def clean_slot(raw: Dict, visible: Dict[str, Dict], known: Dict[str, set]) -> Dict:
@@ -808,9 +809,101 @@ def get_own_template(template_id: str, user: Dict) -> Dict:
     return template
 
 
+def can_run_template(template: Dict, athlete: Dict) -> bool:
+    return (template.get("coach_username") == athlete["username"] or athlete["username"] in (template.get("assignees") or [])
+            or (template.get("published") and template.get("coach_username") in (athlete.get("coaches") or [])))
+
+
 @app.get("/api/templates")
 def list_templates(user: Dict = Depends(current_user)):
-    return [serialize_template(template, user) for template in db.get_templates_for_user(user["username"], user.get("coaches") or [])]
+    """Templates the user can run, each with their remembered picks when the template re-opens with them."""
+    templates = db.get_templates_for_user(user["username"], user.get("coaches") or [])
+    picks = db.get_template_picks(user["username"], [str(template["_id"]) for template in templates])
+    return [{**serialize_template(template, user),
+             "remembered_picks": picks.get(str(template["_id"]), {}) if template.get("reopen") == "remember" else {}}
+            for template in templates]
+
+
+HISTORY_LOGS = 30  # how far back suggestions look
+
+
+@app.get("/api/exercise-history")
+def exercise_history(athlete: Optional[str] = None, user: Dict = Depends(current_user)):
+    """Per exercise from the athlete's recent logs: when it was last done, its latest rounds (previous values), and
+    target_streak — how many of its most recent logs hit every target (it drives "ready for the next step")."""
+    athlete = athlete or user["username"]
+    if not can_act_for(user, athlete):
+        raise HTTPException(status_code=404, detail="Athlete not found")
+    history: Dict[str, Dict] = {}
+    streak_done = set()
+    for log in db.get_recent_logs(athlete, HISTORY_LOGS):
+        for exercise_id, entry in rounds_by_exercise(log.get("supersets", [])).items():
+            if exercise_id not in history:
+                history[exercise_id] = {"last_logged_at": iso(log.get("created_at")), "target_streak": 0,
+                                        "previous": {"created_at": iso(log.get("created_at")), "instances": [{"metrics": m} for m in entry["rounds"]]}}
+        for superset in log.get("supersets", []):
+            for exercise in superset.get("exercises", []):
+                exercise_id, targets = exercise.get("exercise_id"), exercise.get("targets") or {}
+                if not exercise_id or not targets or exercise_id in streak_done or exercise_id not in history:
+                    continue
+                rounds = [instance.get("metrics") or {} for instance in exercise.get("instances", []) if not instance.get("swap")]
+                hit = bool(rounds) and all((r.get(metric) or 0) >= target for r in rounds for metric, target in targets.items())
+                if hit:
+                    history[exercise_id]["target_streak"] += 1
+                else:
+                    streak_done.add(exercise_id)
+    return history
+
+
+class TemplateLogRequest(BaseModel):
+    supersets: List[Dict]
+    picks: Dict[str, str] = {}
+    client_id: Optional[str] = None
+    logged_at: Optional[str] = None
+    user_id: Optional[str] = None
+
+
+def valid_picks(template: Dict, picks: Dict[str, str], athlete: str) -> Dict[str, str]:
+    """The picks that still fit their slot (the template may have changed while the client trained)."""
+    visible = {str(item["_id"]): item for item in db.get_visible_exercises([athlete, template.get("coach_username")])}
+    kind_of = pattern_kind_lookup()
+    valid = {}
+    for superset in template.get("supersets", []):
+        for slot in superset.get("slots", []):
+            pick = picks.get(slot["slot_id"])
+            if pick not in visible:
+                continue
+            if (slot["mode"] == "locked" and pick == slot.get("exercise_id")
+                    or slot["mode"] == "shortlist" and pick in slot.get("shortlist_ids", [])
+                    or slot["mode"] == "open" and matches_rules(slot.get("rules", {}), visible[pick], kind_of)):
+                valid[slot["slot_id"]] = pick
+    return valid
+
+
+@app.post("/api/templates/{template_id}/log")
+def log_template_workout(template_id: str, req: TemplateLogRequest, user: Dict = Depends(current_user)):
+    """Record a workout built from a template. Like session logs it is never lost: it's recorded even if the template
+    changed or was deleted meanwhile; only picks that still fit their slot are remembered."""
+    snapshot = clean_snapshot(req.supersets)
+    if not any(superset["exercises"] for superset in snapshot):
+        raise HTTPException(status_code=400, detail="Nothing to log")
+    athlete = req.user_id or user["username"]
+    athlete_user = db.get_user_by_username(athlete)
+    if not athlete_user or not can_act_for(user, athlete):
+        raise HTTPException(status_code=404, detail="Athlete not found")
+    template = db.get_template(template_id)
+    if template and not can_run_template(template, athlete_user):
+        raise HTTPException(status_code=404, detail="Template not found")
+    prs = personal_records(athlete, snapshot)
+    name = (template or {}).get("name") or "Deleted template"
+    extra = {"template_id": template_id, "template_version": (template or {}).get("version")}
+    log_id = db.add_workout_log({"_id": template_id, "name": name, "user_id": athlete}, snapshot, user["username"],
+                                req.client_id, parse_logged_at(req.logged_at), extra)
+    if template and template.get("reopen") == "remember":
+        picks = valid_picks(template, req.picks, athlete)
+        if picks:
+            db.save_template_picks(template_id, athlete, picks)
+    return {"id": log_id, "prs": prs, "template_deleted": template is None}
 
 
 @app.post("/api/templates")

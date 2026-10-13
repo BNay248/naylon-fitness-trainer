@@ -399,7 +399,8 @@ function withTargetsFilled(draft) {
 // clients: the coach's clients [{username, name}], used to assign the session; omitted for non-coaches.
 // A session object is one athlete's view (session.user_id); a shared session appears once per athlete, so
 // per-view state is keyed by session.key rather than the session id.
-function sessionCard(session, { catalog, actions, drafts, openKeys, clients = null, historyPending = 0 }) {
+// runOnly: just the workout (no edit/assign/delete/history), for running a template.
+function sessionCard(session, { catalog, actions, drafts, openKeys, clients = null, historyPending = 0, runOnly = false }) {
   const key = session.key || session.id;
   const sharedWith = session.shared_with || [];
   const athleteName = session.user_id === ME.username ? 'you' : (session.athlete_name || session.user_id);
@@ -436,6 +437,7 @@ function sessionCard(session, { catalog, actions, drafts, openKeys, clients = nu
         onSave: data => actions.update(session, { name: data.name, supersets: data.supersets, athlete: session.user_id, scope: editScope }),
       }));
     }
+    if (runOnly) return mount(body, logView());
     mount(body, toolbar(), sharedNote(), logView(), historySection());
   }
 

@@ -220,6 +220,14 @@ class TrainerDB:
         updates["updated_at"] = datetime.now()
         return bool(oid) and self.db.templates.update_one({"_id": oid}, {"$set": updates, "$inc": {"version": 1}}).matched_count > 0
 
+    def get_template_picks(self, username: str, template_ids: List[str]) -> Dict[str, Dict[str, str]]:
+        found = self.db.template_picks.find({"username": username, "template_id": {"$in": list(template_ids)}})
+        return {item["template_id"]: item.get("picks") or {} for item in found}
+
+    def save_template_picks(self, template_id: str, username: str, picks: Dict[str, str]) -> None:
+        self.db.template_picks.update_one({"template_id": template_id, "username": username},
+                                          {"$set": {"picks": picks, "updated_at": datetime.now()}}, upsert=True)
+
     def delete_template(self, template_id: str) -> bool:
         oid = to_object_id(template_id)
         self.db.template_picks.delete_many({"template_id": template_id})
@@ -227,7 +235,7 @@ class TrainerDB:
 
     # Workout log methods (one document per completed/saved workout)
     def add_workout_log(self, session: Dict, supersets: List[Dict], logged_by: str,
-                        client_id: Optional[str] = None, created_at: Optional[datetime] = None) -> str:
+                        client_id: Optional[str] = None, created_at: Optional[datetime] = None, extra: Optional[Dict] = None) -> str:
         if client_id:
             existing = self.db.workout_logs.find_one({"client_id": client_id})
             if existing:
@@ -240,8 +248,12 @@ class TrainerDB:
             "created_at": created_at or datetime.now(),
             "supersets": supersets,
             "client_id": client_id,
+            **(extra or {}),
         })
         return str(result.inserted_id)
+
+    def get_recent_logs(self, user_id: str, limit: int) -> List[Dict]:
+        return list(self.db.workout_logs.find({"user_id": user_id}, {"supersets": 1, "created_at": 1}).sort("created_at", -1).limit(limit))
 
     def get_logs_with_exercises(self, user_id: str, exercise_ids: List[str]) -> List[Dict]:
         """A user's logs that include any of these exercises, planned or swapped in."""
