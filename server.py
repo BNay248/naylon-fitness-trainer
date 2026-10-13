@@ -132,13 +132,27 @@ def clamp_repeats(value: Any) -> int:
     return min(MAX_REPEATS, max(1, to_int(value) or 1))
 
 
-def clean_instances(instances: Any, metrics: List[str], rounds: int) -> List[Dict]:
-    """Exactly `rounds` instances, keeping any provided values for the exercise's metrics."""
+def clean_swap(value: Any) -> Optional[Dict]:
+    """The exercise done instead of the planned one for a single round of a logged workout."""
+    if not isinstance(value, dict) or not value.get("name"):
+        return None
+    return {"exercise_id": str(value.get("exercise_id") or ""), "name": str(value["name"]),
+            "metrics": [str(metric) for metric in value.get("metrics") or []]}
+
+
+def clean_instances(instances: Any, metrics: List[str], rounds: int, allow_swaps: bool = False) -> List[Dict]:
+    """Exactly `rounds` instances, keeping any provided values for the exercise's metrics
+    (or, for a swapped round of a logged workout, the substitute's metrics)."""
     instances = instances if isinstance(instances, list) else []
     cleaned = []
     for idx in range(rounds):
-        values = instances[idx].get("metrics", {}) if idx < len(instances) and isinstance(instances[idx], dict) else {}
-        cleaned.append({"metrics": {metric: to_amount(values[metric]) for metric in metrics if metric in values}})
+        raw = instances[idx] if idx < len(instances) and isinstance(instances[idx], dict) else {}
+        values = raw.get("metrics") if isinstance(raw.get("metrics"), dict) else {}
+        swap = clean_swap(raw.get("swap")) if allow_swaps else None
+        instance = {"metrics": {metric: to_amount(values[metric]) for metric in (swap["metrics"] if swap else metrics) if metric in values}}
+        if swap:
+            instance["swap"] = swap
+        cleaned.append(instance)
     return cleaned
 
 
@@ -182,7 +196,8 @@ def clean_structure(raw_supersets: Any, usernames: List[str], existing: Optional
 
 
 def clean_swapped_from(value: Any) -> Optional[Dict]:
-    """The session's exercise that a one-off substitute replaced in a logged workout."""
+    """Older whole-exercise swaps: the entry is the substitute and this names the session's exercise it replaced.
+    (Swaps are now stored per round, see clean_swap; this keeps workouts queued by older clients intact.)"""
     if not isinstance(value, dict) or not value.get("name"):
         return None
     return {"exercise_id": str(value.get("exercise_id") or ""), "name": str(value["name"])}
@@ -202,7 +217,7 @@ def clean_snapshot(raw_supersets: Any) -> List[Dict]:
                 "metrics": metrics,
                 "note": clean_note(raw_exercise.get("note")),
                 "targets": clean_targets(raw_exercise.get("targets"), metrics),
-                "instances": clean_instances(raw_exercise.get("instances"), metrics, repeats),
+                "instances": clean_instances(raw_exercise.get("instances"), metrics, repeats, allow_swaps=True),
             }
             swapped_from = clean_swapped_from(raw_exercise.get("swapped_from"))
             if swapped_from:
@@ -213,7 +228,7 @@ def clean_snapshot(raw_supersets: Any) -> List[Dict]:
 
 
 def planned_name(exercise: Dict) -> Optional[str]:
-    """The session's exercise this entry stands for: a one-off swap still counts as the exercise it replaced."""
+    """The session's exercise this entry stands for: an older whole-exercise swap still counts as the exercise it replaced."""
     return (exercise.get("swapped_from") or {}).get("name") or exercise.get("name")
 
 
@@ -684,10 +699,17 @@ def log_workout(session_id: str, req: LogRequest, user: Dict = Depends(current_u
 def with_instances(supersets: List[Dict], snapshot: List[Dict]) -> List[Dict]:
     """The session's structure (notes, targets, …) with the logged values from a matching snapshot.
 
-    A swapped-out exercise keeps its old values: the substitute's numbers don't belong to it."""
-    return [{**superset, "exercises": [{**exercise, "instances": exercise.get("instances", []) if logged.get("swapped_from") else logged["instances"]}
+    A swapped round keeps its old values: the substitute's numbers don't belong to the planned exercise."""
+    return [{**superset, "exercises": [{**exercise, "instances": merged_instances(exercise.get("instances", []), logged)}
                                        for exercise, logged in zip(superset.get("exercises", []), logged_superset["exercises"])]}
             for superset, logged_superset in zip(supersets, snapshot)]
+
+
+def merged_instances(saved: List[Dict], logged: Dict) -> List[Dict]:
+    if logged.get("swapped_from"):
+        return saved
+    return [(saved[idx] if idx < len(saved) else {"metrics": {}}) if instance.get("swap") else instance
+            for idx, instance in enumerate(logged["instances"])]
 
 
 @app.get("/api/previous")

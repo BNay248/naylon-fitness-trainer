@@ -111,10 +111,8 @@ function overlayQueue(serverData, queue, catalog) {
       if (!(session.shared_with || []).length && structureKey(session.supersets) === structureKey(op.body.supersets)) {
         session.supersets = withLoggedValues(session.supersets, op.body.supersets);
       }
-      for (const superset of op.body.supersets) {
-        for (const exercise of superset.exercises) {
-          session.previous[exercise.name] = { created_at: op.body.logged_at, instances: clone(exercise.instances) };
-        }
+      for (const [name, instances] of Object.entries(roundsByExercise(op.body.supersets))) {
+        session.previous[name] = { created_at: op.body.logged_at, instances };
       }
     }
   }

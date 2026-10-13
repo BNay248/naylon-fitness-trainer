@@ -166,15 +166,20 @@ class TrainerDB:
         self.db.workout_logs.update_many({"session_id": from_session_id, "user_id": user_id}, {"$set": {"session_id": to_session_id}})
 
     def get_latest_exercise_log(self, user_id: str, exercise_name: str) -> Optional[Dict]:
-        """Most recent logged instances of an exercise for a user: {"created_at", "instances"}."""
-        log = self.db.workout_logs.find_one(
-            {"user_id": user_id, "supersets.exercises.name": exercise_name},
+        """Most recent logged rounds of an exercise for a user: {"created_at", "instances"}.
+
+        Rounds swapped for another exercise count as that exercise, not the planned one, so a log
+        where every round was swapped out is skipped and an older one is used."""
+        logs = self.db.workout_logs.find(
+            {"user_id": user_id, "$or": [{"supersets.exercises.name": exercise_name},
+                                          {"supersets.exercises.instances.swap.name": exercise_name}]},
             sort=[("created_at", -1)],
         )
-        if not log:
-            return None
-        for superset in log.get("supersets", []):
-            for exercise in superset.get("exercises", []):
-                if exercise.get("name") == exercise_name:
-                    return {"created_at": log.get("created_at"), "instances": exercise.get("instances", [])}
+        for log in logs:
+            for superset in log.get("supersets", []):
+                for exercise in superset.get("exercises", []):
+                    rounds = [{"metrics": instance.get("metrics", {})} for instance in exercise.get("instances", [])
+                              if ((instance.get("swap") or {}).get("name") or exercise.get("name")) == exercise_name]
+                    if rounds:
+                        return {"created_at": log.get("created_at"), "instances": rounds}
         return None

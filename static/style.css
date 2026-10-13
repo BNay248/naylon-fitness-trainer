@@ -97,6 +97,7 @@ nav .nav-toggle { display: none; margin-left: auto; padding: 6px 12px; font-size
 .tag.swapped { color: var(--accent); border-color: var(--accent); }
 .round-row { margin-top: 10px; }
 .round-row .round-title { margin: 0 0 2px; }
+.round-title .swapped-name { color: var(--accent); text-transform: none; letter-spacing: normal; }
 .metric-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(90px, 1fr)); gap: 8px; margin-top: 6px; }
 .metric-grid input { text-align: center; font-size: 17px; }
 .stepper { display: flex; }
