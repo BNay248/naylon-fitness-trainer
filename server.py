@@ -181,6 +181,13 @@ def clean_structure(raw_supersets: Any, usernames: List[str], existing: Optional
     return supersets
 
 
+def clean_swapped_from(value: Any) -> Optional[Dict]:
+    """The session's exercise that a one-off substitute replaced in a logged workout."""
+    if not isinstance(value, dict) or not value.get("name"):
+        return None
+    return {"exercise_id": str(value.get("exercise_id") or ""), "name": str(value["name"])}
+
+
 def clean_snapshot(raw_supersets: Any) -> List[Dict]:
     """Sanitize a logged workout as the athlete saw it (no catalog lookup, so history stays exact)."""
     supersets = []
@@ -189,20 +196,29 @@ def clean_snapshot(raw_supersets: Any) -> List[Dict]:
         exercises = []
         for raw_exercise in raw.get("exercises") or []:
             metrics = [str(metric) for metric in raw_exercise.get("metrics") or []]
-            exercises.append({
+            exercise = {
                 "exercise_id": str(raw_exercise.get("exercise_id") or ""),
                 "name": str(raw_exercise.get("name") or ""),
                 "metrics": metrics,
                 "note": clean_note(raw_exercise.get("note")),
                 "targets": clean_targets(raw_exercise.get("targets"), metrics),
                 "instances": clean_instances(raw_exercise.get("instances"), metrics, repeats),
-            })
+            }
+            swapped_from = clean_swapped_from(raw_exercise.get("swapped_from"))
+            if swapped_from:
+                exercise["swapped_from"] = swapped_from
+            exercises.append(exercise)
         supersets.append({"repeats": repeats, "exercises": exercises})
     return supersets
 
 
+def planned_name(exercise: Dict) -> Optional[str]:
+    """The session's exercise this entry stands for: a one-off swap still counts as the exercise it replaced."""
+    return (exercise.get("swapped_from") or {}).get("name") or exercise.get("name")
+
+
 def structure_signature(supersets: List[Dict]) -> List:
-    return [(superset.get("repeats"), [exercise.get("name") for exercise in superset.get("exercises", [])]) for superset in supersets]
+    return [(superset.get("repeats"), [planned_name(exercise) for exercise in superset.get("exercises", [])]) for superset in supersets]
 
 
 def session_athletes(session: Dict) -> List[str]:
@@ -666,10 +682,22 @@ def log_workout(session_id: str, req: LogRequest, user: Dict = Depends(current_u
 
 
 def with_instances(supersets: List[Dict], snapshot: List[Dict]) -> List[Dict]:
-    """The session's structure (notes, targets, …) with the logged values from a matching snapshot."""
-    return [{**superset, "exercises": [{**exercise, "instances": logged["instances"]}
+    """The session's structure (notes, targets, …) with the logged values from a matching snapshot.
+
+    A swapped-out exercise keeps its old values: the substitute's numbers don't belong to it."""
+    return [{**superset, "exercises": [{**exercise, "instances": exercise.get("instances", []) if logged.get("swapped_from") else logged["instances"]}
                                        for exercise, logged in zip(superset.get("exercises", []), logged_superset["exercises"])]}
             for superset, logged_superset in zip(supersets, snapshot)]
+
+
+@app.get("/api/previous")
+def previous_exercise_values(name: str, athlete: Optional[str] = None, user: Dict = Depends(current_user)):
+    """An athlete's most recent logged values for one exercise (used to prefill a one-off swap)."""
+    athlete = athlete or user["username"]
+    if not can_act_for(user, athlete):
+        raise HTTPException(status_code=404, detail="Athlete not found")
+    latest = db.get_latest_exercise_log(athlete, name)
+    return {"created_at": iso(latest["created_at"]), "instances": latest["instances"]} if latest else None
 
 
 @app.get("/api/sessions/{session_id}/history")

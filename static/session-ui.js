@@ -30,9 +30,20 @@ function targetText(exercise) {
   return (exercise.metrics || []).filter(metric => targets[metric]).map(metric => `${metric} ${targets[metric]}`).join(', ');
 }
 
+// The session's exercise an entry stands for: a one-off swap still counts as the exercise it replaced.
+const plannedName = exercise => exercise.swapped_from?.name || exercise.name;
+
 // Same comparison the server uses to decide whether a logged workout still fits the session.
 function structureKey(supersets) {
-  return JSON.stringify(supersets.map(superset => [roundCount(superset), superset.exercises.map(exercise => exercise.name)]));
+  return JSON.stringify(supersets.map(superset => [roundCount(superset), superset.exercises.map(plannedName)]));
+}
+
+// Client-side mirror of the server's with_instances: a swapped-out exercise keeps its old values.
+function withLoggedValues(supersets, logged) {
+  return supersets.map((superset, s) => ({ ...superset, exercises: superset.exercises.map((exercise, e) => {
+    const entry = logged[s].exercises[e];
+    return entry.swapped_from ? exercise : { ...exercise, instances: clone(entry.instances) };
+  }) }));
 }
 
 // Client-side mirror of the server's clean_structure, used to show queued creates/edits before they sync.
@@ -99,7 +110,7 @@ function logText(log) {
   log.supersets.forEach((superset, idx) => {
     lines.push(`Superset ${idx + 1}`);
     superset.exercises.forEach(exercise => {
-      lines.push(`  ${exercise.name || 'Untitled'}`);
+      lines.push(`  ${exercise.name || 'Untitled'}${exercise.swapped_from ? ` (swapped in for ${exercise.swapped_from.name})` : ''}`);
       (exercise.instances || []).forEach((instance, round) => {
         const values = exercise.metrics.map(metric => `${metric}: ${(instance.metrics || {})[metric] ?? 0}`).join(', ') || 'no metrics';
         lines.push(`    Round ${round + 1}: ${values}`);
@@ -266,8 +277,9 @@ function sessionBuilder({ catalog, initial, saveLabel, onSave, onCancel, clients
 
 // ---------- Session card (log a workout, history, edit, delete) ----------
 
+// A swapped-in exercise carries its own previous values (fetched when swapping), since the session doesn't list it.
 function previousValues(session, exercise, round) {
-  const previous = session.previous?.[exercise.name];
+  const previous = exercise.swapped_from ? exercise.previous : session.previous?.[exercise.name];
   if (!previous || !previous.instances.length) return {};
   const metrics = previous.instances[Math.min(round, previous.instances.length - 1)].metrics || {};
   return Object.fromEntries(exercise.metrics.filter(metric => metrics[metric]).map(metric => [metric, metrics[metric]]));
@@ -278,20 +290,43 @@ function previousValues(session, exercise, round) {
 function workoutDraft(session) {
   return session.supersets.map(superset => ({
     repeats: roundCount(superset),
-    exercises: superset.exercises.map(exercise => ({
-      exercise_id: exercise.exercise_id,
-      name: exercise.name,
-      metrics: exercise.metrics || [],
-      note: exercise.note || '',
-      targets: exercise.targets || {},
-      instances: Array.from({ length: roundCount(superset) }, (_, round) => {
-        const saved = (exercise.instances || [])[round]?.metrics || {};
-        const previous = previousValues(session, exercise, round);
-        return { metrics: Object.fromEntries((exercise.metrics || []).map(metric => [metric,
-          (exercise.targets || {})[metric] ? null : toAmount(saved[metric] ?? previous[metric] ?? 0)])) };
-      }),
-    })),
+    exercises: superset.exercises.map(exercise => draftExercise(session, exercise, roundCount(superset))),
   }));
+}
+
+function draftExercise(session, exercise, rounds) {
+  return {
+    exercise_id: exercise.exercise_id,
+    name: exercise.name,
+    metrics: exercise.metrics || [],
+    note: exercise.note || '',
+    targets: exercise.targets || {},
+    instances: Array.from({ length: rounds }, (_, round) => {
+      const saved = (exercise.instances || [])[round]?.metrics || {};
+      const previous = previousValues(session, exercise, round);
+      return { metrics: Object.fromEntries((exercise.metrics || []).map(metric => [metric,
+        (exercise.targets || {})[metric] ? null : toAmount(saved[metric] ?? previous[metric] ?? 0)])) };
+    }),
+  };
+}
+
+// Draft entry for doing `chosen` instead of the session's `original` this time only, prefilled from `previous`
+// ({instances} from /api/previous, or null). The original's targets don't carry over: its weights etc. may not apply.
+function swappedExercise(original, chosen, rounds, previous) {
+  const exercise = {
+    exercise_id: chosen.id,
+    name: chosen.name,
+    metrics: chosen.metrics || [],
+    note: original.note || '',
+    targets: {},
+    swapped_from: { exercise_id: original.exercise_id, name: original.name, targets: original.targets || {}, metrics: original.metrics || [] },
+    previous: previous && previous.instances?.length ? previous : null,
+  };
+  exercise.instances = Array.from({ length: rounds }, (_, round) => {
+    const values = previousValues(null, exercise, round);
+    return { metrics: Object.fromEntries(exercise.metrics.map(metric => [metric, toAmount(values[metric] ?? 0)])) };
+  });
+  return exercise;
 }
 
 // Fields left blank count as having hit the target.
@@ -321,6 +356,7 @@ function sessionCard(session, { catalog, actions, drafts, openKeys, clients = nu
   let confirmingDelete = false;
   let assigning = null; // Set of usernames picked in the assign panel while it's open
   let editScope = session.can_edit_all ? 'all' : 'athlete';
+  let swapping = null; // "superset:exercise" index whose swap picker is open
   const unsynced = session.pending || historyPending > 0;
 
   const card = trackedDetails(key, openKeys, { class: 'card', dataset: { sessionId: session.id } },
@@ -432,34 +468,78 @@ function sessionCard(session, { catalog, actions, drafts, openKeys, clients = nu
     const stored = drafts.get(key);
     const draft = stored && structureKey(stored) === structureKey(session.supersets) ? stored : workoutDraft(session);
     // Notes and targets always come from the session, so edits show up even over an older draft.
+    // A swapped-in exercise keeps no targets; the original's show next to it for reference.
     draft.forEach((superset, s) => superset.exercises.forEach((exercise, e) => {
       const current = session.supersets[s].exercises[e];
       exercise.note = current.note || '';
-      exercise.targets = current.targets || {};
+      if (exercise.swapped_from) Object.assign(exercise.swapped_from, { targets: current.targets || {}, metrics: current.metrics || [] });
+      else exercise.targets = current.targets || {};
     }));
+    const saveDraft = () => drafts.set(key, draft);
     const saveButton = el('button', { class: 'primary', onclick: () => withBusy(saveButton, () => actions.log(session, withTargetsFilled(draft))) }, 'Save Session');
 
     return el('div', {},
       draft.map((superset, supersetIdx) => trackedDetails(`${key}:superset:${supersetIdx}`, openKeys, { class: 'card' },
         el('summary', {}, `Superset ${supersetIdx + 1} • ${superset.repeats} round(s)`),
-        superset.exercises.map(exercise => exerciseLog(exercise, superset.repeats, () => drafts.set(key, draft))),
+        superset.exercises.map((exercise, exerciseIdx) => exerciseLog(exercise, superset.repeats, saveDraft, {
+          picking: swapping === `${supersetIdx}:${exerciseIdx}`,
+          pick: () => { swapping = `${supersetIdx}:${exerciseIdx}`; render(); },
+          replace: next => { superset.exercises[exerciseIdx] = next; swapping = null; saveDraft(); render(); },
+          original: session.supersets[supersetIdx].exercises[exerciseIdx],
+        })),
       )),
       el('div', { class: 'buttons' }, saveButton),
     );
   }
 
   // One block per exercise: name/note/video once, then a row of inputs for each round.
-  function exerciseLog(exercise, rounds, onEdit) {
+  function exerciseLog(exercise, rounds, onEdit, swap) {
     const video = showVideos && exerciseVideo(exercise, catalog);
     const target = targetText(exercise);
+    const originalTarget = exercise.swapped_from && targetText(exercise.swapped_from);
     return el('div', { class: 'exercise-log' },
-      el('div', { class: 'name' }, exercise.name || 'Untitled'),
+      el('div', { class: 'row' },
+        el('div', { class: 'name grow' }, exercise.name || 'Untitled', exercise.swapped_from && el('span', { class: 'tag swapped' }, 'Swapped')),
+        !swap.picking && (exercise.swapped_from
+          ? el('button', { type: 'button', class: 'small', onclick: () => swap.replace(draftExercise(session, swap.original, rounds)) }, 'Undo swap')
+          : el('button', { type: 'button', class: 'small', onclick: swap.pick }, 'Swap')),
+      ),
+      exercise.swapped_from && el('div', { class: 'muted' },
+        `Instead of ${exercise.swapped_from.name}, this time only${originalTarget ? ` (its target: ${originalTarget})` : ''}`),
+      swap.picking && swapPicker(exercise, rounds, swap),
       exercise.note && el('div', { class: 'exercise-note' }, exercise.note),
       target && el('div', { class: 'muted' }, `Target: ${target}`),
       video && el('div', { class: 'video' }, el('iframe', { src: video, allowfullscreen: true, loading: 'lazy', title: exercise.name })),
       exercise.metrics.length
         ? Array.from({ length: rounds }, (_, round) => roundRow(exercise, round, onEdit))
         : el('div', { class: 'muted' }, 'No metrics configured for this exercise'),
+    );
+  }
+
+  // Choose a substitute for this workout only (machine taken, injury, …). The session itself is unchanged.
+  function swapPicker(exercise, rounds, swap) {
+    const select = el('select', {},
+      el('option', { value: '' }, 'Do instead…'),
+      catalog.list.filter(item => item.name !== exercise.name).map(item => el('option', { value: item.id }, item.name)),
+    );
+    const choose = async () => {
+      const chosen = catalog.byId[select.value];
+      if (!chosen) return toast('Pick an exercise to swap in', 'error');
+      let previous = null;
+      try {
+        previous = await api('GET', `/api/previous?name=${encodeURIComponent(chosen.name)}&athlete=${encodeURIComponent(session.user_id)}`);
+      } catch (err) {
+        if (err.status !== 0) throw err; // offline: swap anyway, just without previous values
+      }
+      swap.replace(swappedExercise(swap.original, chosen, rounds, previous));
+    };
+    return el('div', { class: 'confirm' },
+      el('div', { class: 'field' }, `Swap ${exercise.name} for this workout only:`),
+      select,
+      el('div', { class: 'buttons' },
+        el('button', { type: 'button', class: 'primary', onclick: e => withBusy(e.currentTarget, choose) }, 'Swap'),
+        el('button', { type: 'button', onclick: () => { swapping = null; render(); } }, 'Cancel'),
+      ),
     );
   }
 

@@ -93,6 +93,8 @@ nav .nav-toggle { display: none; margin-left: auto; padding: 6px 12px; font-size
 .exercise-log { padding: 8px 0; border-top: 1px solid var(--border-soft); }
 .exercise-log:first-of-type { border-top: none; }
 .exercise-log .name { font-weight: 600; }
+.exercise-log .name .tag { margin-left: 8px; }
+.tag.swapped { color: var(--accent); border-color: var(--accent); }
 .round-row { margin-top: 10px; }
 .round-row .round-title { margin: 0 0 2px; }
 .metric-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(90px, 1fr)); gap: 8px; margin-top: 6px; }

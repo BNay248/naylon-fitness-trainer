@@ -108,7 +108,9 @@ function overlayQueue(serverData, queue, catalog) {
       if (!session) continue;
       pendingLogs[session.key || session.id] = (pendingLogs[session.key || session.id] || 0) + 1;
       // A shared session holds no one's values (each athlete starts from their own previous ones).
-      if (!(session.shared_with || []).length && structureKey(session.supersets) === structureKey(op.body.supersets)) session.supersets = clone(op.body.supersets);
+      if (!(session.shared_with || []).length && structureKey(session.supersets) === structureKey(op.body.supersets)) {
+        session.supersets = withLoggedValues(session.supersets, op.body.supersets);
+      }
       for (const superset of op.body.supersets) {
         for (const exercise of superset.exercises) {
           session.previous[exercise.name] = { created_at: op.body.logged_at, instances: clone(exercise.instances) };
