@@ -255,7 +255,7 @@
       const has = (exercise, fields, id) => !id || fields.some(field => (exercise[field] || []).includes(id));
       cards.forEach(({ card, exercise }) => card.classList.toggle('hidden', !(
         (!query || card.dataset.name.includes(query))
-        && has(exercise, ['primary_group_ids', 'secondary_group_ids'], byMuscleGroup.value)
+        && has(exercise, ['primary_group_ids'], byMuscleGroup.value) // only exercises that mainly work the group
         && has(exercise, ['equipment_ids'], byEquipment.value)
         && has(exercise, ['movement_pattern_ids'], byPattern.value))));
     }
