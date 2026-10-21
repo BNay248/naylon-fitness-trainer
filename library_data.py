@@ -190,7 +190,8 @@ def X(name, eq="", pat="", p="", s="", next="", how=None, metrics="RW", video=""
             "next": split(next), "instructions": how, "metrics": metrics, "video_url": video}
 
 
-L_SIT_P, L_SIT_S = "Hip Flexors, Abs, Triceps", "Quadriceps, Lats, Lower Traps"
+# Hip flexors and abs hold the legs up; the triceps and shoulders only hold the support position.
+L_SIT_P, L_SIT_S = "Hip Flexors, Abs", "Triceps, Quadriceps, Lats, Lower Traps"
 HANDSTAND_P, HANDSTAND_S = "Front Delts, Triceps", "Upper Traps, Serratus Anterior, Abs"
 DIP_P, DIP_S = "Lower Chest, Triceps", "Front Delts, Pectoralis Minor"
 PULL_UP_P, PULL_UP_S = "Lats", "Teres Major, Biceps, Brachialis, Lower Traps, Rhomboids"
@@ -224,7 +225,7 @@ EXISTING = [
     X("Advanced Tuck L-sit", pat="Support Hold, Hip Flexion", p=L_SIT_P, s=L_SIT_S, next="One-Leg L-sit"),
     X("One-Leg L-sit", pat="Support Hold, Hip Flexion", p=L_SIT_P, s=L_SIT_S, next="L-sit"),
     X("L-sit", pat="Support Hold, Hip Flexion", p=L_SIT_P, s=L_SIT_S, next="Straddle L-sit"),
-    X("Straddle L-sit", pat="Support Hold, Hip Flexion", p=L_SIT_P, s="Adductors, Quadriceps, Lats, Lower Traps"),
+    X("Straddle L-sit", pat="Support Hold, Hip Flexion", p=L_SIT_P, s="Triceps, Adductors, Quadriceps, Lats, Lower Traps"),
     X("Pike Compression", pat="Hip Flexion", p="Hip Flexors, Abs", s="Quadriceps"),
     X("Parallel Bar Support Hold", eq="Dip Station", pat="Support Hold", p="Triceps, Lower Traps", s="Lower Chest, Front Delts", next="Dip Negative"),
 
