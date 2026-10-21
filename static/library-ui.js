@@ -1,4 +1,4 @@
-// Shared pickers for the exercise library (exercise form, client profiles, templates).
+// Shared pickers for the exercise library (exercise form, client profiles).
 
 // A collapsible set of on/off chips in labelled sections ([{label, items}]); returns {node, read(), set(ids), reset()}.
 // onChange(ids) runs after every toggle.
@@ -37,15 +37,3 @@ const bySection = (items, key, order) => order.map(label => ({ label, items: ite
 // Equipment picker sectioned by type, for a client's training profile.
 const equipmentPicker = (library, selectedIds, title = 'Equipment') =>
   chipPicker(title, bySection(library.equipment, 'type', library.equipment_types), selectedIds);
-
-// Client-side mirror of the server's matches_rules: AND across rule keys, OR within one; an empty key doesn't
-// constrain; an equipment rule means "uses some of these and nothing else". Needs exercise.pattern_kinds (from /api/exercises).
-function matchesRules(rules, exercise) {
-  const anyOf = (key, values) => !(rules[key] || []).length || (values || []).some(value => rules[key].includes(value));
-  const equipment = rules.equipment_ids || [];
-  return anyOf('muscle_group_ids', exercise.primary_group_ids)
-    && anyOf('muscle_ids', exercise.primary_muscle_ids)
-    && anyOf('movement_pattern_ids', exercise.movement_pattern_ids)
-    && anyOf('pattern_kinds', exercise.pattern_kinds)
-    && (!equipment.length || ((exercise.equipment_ids || []).length > 0 && exercise.equipment_ids.every(id => equipment.includes(id))));
-}

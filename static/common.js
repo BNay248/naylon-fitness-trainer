@@ -87,11 +87,11 @@ function renderNav(active) {
     ['sessions', '/', 'Sessions'],
     ['exercises', '/exercises', 'Exercises'],
     ME.role === 'coach' && ['library', '/library', 'Library'],
-    ME.role === 'coach' && ['templates', '/templates', 'Templates'],
     ME.role === 'coach' && ['clients', '/clients', 'Clients'],
     ['coaches', '/coaches', 'Coaches'],
     ['profile', '/profile', 'Profile'],
     ME.is_admin && ['admin', '/admin', 'Admin'],
+    ME.templates_url && ['templates', ME.templates_url, 'Templates'],
     ME.tracker_url && ['nutrition', ME.tracker_url, 'Nutrition'],
   ].filter(Boolean);
   // On narrow screens the links collapse behind the menu button instead of wrapping.

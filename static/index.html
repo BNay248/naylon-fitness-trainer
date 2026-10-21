@@ -19,16 +19,10 @@
 <script src="/static/common.js"></script>
 <script src="/static/session-ui.js"></script>
 <script src="/static/offline.js"></script>
-<script src="/static/library-ui.js"></script>
-<script src="/static/template-run.js"></script>
 <script>
   let main = null;
   let serverData = null;   // last /api/sessions response (cached for offline use)
   let catalog = makeCatalog([]);
-  let templates = [];      // templates this user can run (with remembered picks)
-  let history = {};        // exercise_id -> {last_logged_at, target_streak, previous}: drives template suggestions
-  let equipmentNames = {}; // equipment id -> name, for "Needs …" reasons
-  const templateRuns = {};  // template id -> run state (picks, step) that outlives re-renders
   let offline = false;
   let renderDeferred = false;
 
@@ -59,9 +53,6 @@
       queueChange({ kind: 'delete', session_id: session.id, athlete: session.user_id, base_version: session.version }, shared ? 'Session removed' : 'Session deleted');
     },
     assign: (session, usernames) => queueChange({ kind: 'assign', session_id: session.id, body: { usernames } }, 'Session assigned'),
-    templateLog: (template, session, supersets, picks) => queueChange({ kind: 'template_log', template_id: template.id, body: {
-      supersets, picks, logged_at: new Date().toISOString(), session_name: template.name, user_id: session.user_id,
-    } }, 'Workout saved'),
     log: (session, supersets) => {
       drafts.clear(session.key || session.id);
       queueChange({ kind: 'log', session_id: session.id, body: {
@@ -74,16 +65,11 @@
 
   async function refresh() {
     try {
-      const [exercises, data, runnable, recent, library] = await Promise.all([api('GET', '/api/exercises'), api('GET', '/api/sessions'),
-        api('GET', '/api/templates'), api('GET', '/api/exercise-history'), api('GET', '/api/library')]);
+      const [exercises, data] = await Promise.all([api('GET', '/api/exercises'), api('GET', '/api/sessions')]);
       store.set('exercises', exercises);
       store.set('sessions', data);
-      store.set('templates', runnable);
-      store.set('history', recent);
-      store.set('equipment-names', Object.fromEntries(library.equipment.map(item => [item.id, item.name])));
       serverData = data;
       catalog = makeCatalog(exercises);
-      loadTemplateData();
       offline = false;
     } catch (err) {
       if (err.status !== 0) throw err;
@@ -91,13 +77,7 @@
     }
   }
 
-  function loadTemplateData() {
-    templates = store.get('templates', []);
-    history = store.get('history', {});
-    equipmentNames = store.get('equipment-names', {});
-  }
-
-  const snapshot = () => JSON.stringify([serverData, SyncQueue.load(), catalog.list.length, templates, history]);
+  const snapshot = () => JSON.stringify([serverData, SyncQueue.load(), catalog.list.length]);
 
   async function sync() {
     const before = snapshot();
@@ -135,15 +115,6 @@
         el('p', { class: 'muted field' }, 'Build a session with supersets and repeated exercise rounds.'),
         sessionBuilder({ catalog, saveLabel: 'Create Session', clients: ME.role === 'coach' ? data.clients : null, onSave: actions.create }),
       ),
-      templates.length > 0 && [
-        el('h2', {}, 'Templates'),
-        el('p', { class: 'muted field' }, 'Pick an exercise for each slot (the best fits are suggested), then train it like a session.'),
-        templates.map(template => templateRunCard(template, {
-          ctx: { catalog, history, equipmentNames, equipment: new Set(ME.equipment_ids || []), taken: new Set() },
-          actions: { log: actions.templateLog, saveAsSession: body => actions.create(body) }, drafts, openKeys,
-          state: templateRuns[template.id] = templateRuns[template.id] || {},
-        })),
-      ],
       el('h2', {}, 'Your Sessions'),
       data.mine.length ? data.mine.map(card) : el('p', { class: 'muted' }, 'No sessions yet. Create your first one above.'),
       ME.role === 'coach' && [
@@ -163,7 +134,6 @@
     // Show cached data (plus anything queued) instantly, then catch up with the server.
     serverData = store.get('sessions', null);
     catalog = makeCatalog(store.get('exercises', []));
-    loadTemplateData();
     render();
     await sync();
 
