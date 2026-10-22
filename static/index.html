@@ -53,6 +53,8 @@
       queueChange({ kind: 'delete', session_id: session.id, athlete: session.user_id, base_version: session.version }, shared ? 'Session removed' : 'Session deleted');
     },
     assign: (session, usernames) => queueChange({ kind: 'assign', session_id: session.id, body: { usernames } }, 'Session assigned'),
+    schedule: (session, days) => queueChange({ kind: 'schedule', session_id: session.id, athlete: session.user_id,
+      body: { days_per_week: days, athlete: session.user_id } }, days ? `Scheduled ${days}×/week` : 'Schedule cleared'),
     log: (session, supersets) => {
       drafts.clear(session.key || session.id);
       queueChange({ kind: 'log', session_id: session.id, body: {

@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Coverage · Naylon Fitness Portal</title>
+<link rel="icon" href="/static/NFP.jpg">
+<link rel="manifest" href="/static/manifest.json">
+<link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
+<meta name="theme-color" content="#0e1117">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="container"></div>
+<div id="toasts"></div>
+<script src="/static/common.js"></script>
+<script>
+  // How much each muscle is worked in a typical week, ranked: planned (sessions × days per week) or actual (logged).
+  const LEAST_SHOWN = 5;
+  let mode = 'planned';
+  let athlete = null;
+
+  // Cold blue for barely worked, through green, to hot red for the most worked.
+  const heat = ratio => `hsl(${Math.round(220 - 220 * ratio)} 72% ${ratio > 0.5 ? 52 : 48}%)`;
+  const fmt = sets => sets >= 10 ? String(Math.round(sets)) : String(Math.round(sets * 10) / 10);
+
+  function heatRow(name, detail, entry, max) {
+    const sets = entry ? entry.sets : 0;
+    const ratio = max ? sets / max : 0;
+    return el('details', { class: 'heat-row' },
+      el('summary', {},
+        el('span', { class: 'heat-name' }, name, detail && el('span', { class: 'muted' }, ` · ${detail}`)),
+        el('span', { class: 'heat-bar' }, sets > 0 && el('span', { style: `width:${Math.max(2, ratio * 100)}%;background:${heat(ratio)}` })),
+        el('span', { class: 'heat-value' }, sets > 0 ? fmt(sets) : '–')),
+      el('div', { class: 'heat-sources' }, entry && entry.sources.length
+        ? entry.sources.map(([exercise, value]) => el('div', {}, `${exercise}: ${fmt(value)} sets`))
+        : 'Not worked by anything in this view.'));
+  }
+
+  function summary(data) {
+    if (mode === 'planned') {
+      const { scheduled, unscheduled } = data.planned;
+      return [
+        el('p', { class: 'muted field' }, scheduled.length
+          ? `From ${scheduled.length} scheduled session${scheduled.length === 1 ? '' : 's'}: ${fmt(data.planned.sets)} sets a week.`
+          : 'No sessions have days per week set yet.'),
+        unscheduled.length > 0 && el('div', { class: 'info' }, `Not counted (no days per week set): ${unscheduled.join(', ')}. `,
+          'Set it on each session on the ', el('a', { href: '/' }, 'Sessions'), ' page.'),
+      ];
+    }
+    const { workouts, weeks } = data.actual;
+    return el('p', { class: 'muted field' }, workouts
+      ? `From ${workouts} workout${workouts === 1 ? '' : 's'} logged in the last ${weeks} weeks (including templates), averaged per week: ${fmt(data.actual.sets)} sets a week.`
+      : `No workouts logged in the last ${weeks} weeks.`);
+  }
+
+  async function render(main) {
+    const [data, library] = await Promise.all([
+      api('GET', `/api/coverage${athlete ? `?athlete=${encodeURIComponent(athlete)}` : ''}`), api('GET', '/api/library')]);
+    athlete = data.athlete;
+    const view = data[mode];
+    const groupName = Object.fromEntries(library.muscle_groups.map(group => [group.id, group.name]));
+    const muscles = library.muscles.map(muscle => ({ ...muscle, entry: view.muscles[muscle.id] || null, sets: view.muscles[muscle.id]?.sets || 0 }))
+      .sort((a, b) => b.sets - a.sets || a.name.localeCompare(b.name));
+    const groups = library.muscle_groups.map(group => ({ ...group, entry: view.groups[group.id] || null, sets: view.groups[group.id]?.sets || 0 }))
+      .sort((a, b) => b.sets - a.sets || a.name.localeCompare(b.name));
+    const worked = muscles.filter(muscle => muscle.sets > 0);
+    const neglected = muscles.filter(muscle => !muscle.sets);
+    const maxMuscle = worked.length ? worked[0].sets : 0;
+    const maxGroup = groups.length ? groups[0].sets : 0;
+    const refresh = () => render(main).catch(err => toast(err.message, 'error'));
+    const secondaryPct = Math.round(data.secondary_weight * 100);
+
+    mount(main,
+      el('h1', {}, 'Coverage'),
+      el('div', { class: 'info' }, `How much each muscle is worked in a typical week, in sets. A set counts fully for the exercise's primary muscles `
+        + `and ${secondaryPct}% for its secondary ones. Use it to spot muscles you're neglecting.`),
+      data.athletes.length > 1 && el('div', { class: 'field' }, el('label', {}, 'Athlete'),
+        el('select', { onchange: e => { athlete = e.target.value; refresh(); } },
+          data.athletes.map(item => el('option', { value: item.username, selected: item.username === athlete },
+            item.username === ME.username ? `Me (${item.name})` : `${item.name} (${item.username})`)))),
+      el('div', { class: 'chips field' },
+        [['planned', 'Planned'], ['actual', `Actual (last ${data.actual.weeks} weeks)`]].map(([key, label]) =>
+          el('span', { class: `chip ${mode === key ? 'on' : ''}`, onclick: () => { mode = key; refresh(); } }, label))),
+      summary(data),
+      view.sets > 0 && [
+        el('div', { class: 'heat-legend' }, 'Least', el('span', { class: 'scale' }), 'Most worked · sets/week'),
+        el('h2', {}, 'Muscle groups'),
+        el('div', { class: 'card' }, groups.map(group => heatRow(group.name, null, group.entry, maxGroup))),
+        neglected.length > 0 && [
+          el('h2', {}, `Not worked (${neglected.length})`),
+          el('p', { class: 'muted field' }, 'No exercise in this view works these, even as a secondary muscle.'),
+          el('div', { class: 'chips field' }, neglected.map(muscle => el('span', { class: 'tag' }, `${muscle.name} · ${groupName[muscle.group_id] || ''}`))),
+        ],
+        worked.length > LEAST_SHOWN && [
+          el('h2', {}, 'Least worked'),
+          el('div', { class: 'card' }, worked.slice(-LEAST_SHOWN).reverse().map(muscle => heatRow(muscle.name, groupName[muscle.group_id], muscle.entry, maxMuscle))),
+        ],
+        el('h2', {}, 'All muscles, most worked first'),
+        el('div', { class: 'card' }, muscles.map(muscle => heatRow(muscle.name, groupName[muscle.group_id], muscle.entry, maxMuscle))),
+        el('p', { class: 'muted' }, 'Tap a muscle to see which exercises work it.'),
+      ],
+    );
+  }
+
+  boot('coverage', main => render(main).catch(err => mount(main, el('div', { class: 'error' },
+    err.status === 0 ? 'Coverage needs a connection.' : err.message))));
+</script>
+</body>
+</html>

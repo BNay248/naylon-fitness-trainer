@@ -272,6 +272,12 @@ def view_key(session: Dict, athlete: str) -> str:
     return session_id if athlete == session.get("user_id") else f"{session_id}@{athlete}"
 
 
+def days_per_week(session: Dict, athlete: str) -> int:
+    """How many days a week this athlete does the session (0 = not scheduled). Kept per athlete, so a shared
+    session's athletes each set their own."""
+    return next((entry.get("days", 0) for entry in session.get("schedule") or [] if entry.get("username") == athlete), 0)
+
+
 def without_values(supersets: List[Dict]) -> List[Dict]:
     return [{**superset, "exercises": [{**exercise, "instances": [{"metrics": {}} for _ in exercise.get("instances", [])]}
                                        for exercise in superset.get("exercises", [])]} for superset in supersets]
@@ -301,6 +307,7 @@ def serialize_session(session: Dict, athlete: str, user: Dict, previous_cache: D
         "created_at": iso(session.get("created_at")),
         "supersets": without_values(session.get("supersets", [])) if shared else session.get("supersets", []),
         "version": session.get("version", 0),
+        "days_per_week": days_per_week(session, athlete),
         "shared_with": [{"username": name, "name": names.get(name, name)} for name in others],
         "can_edit_all": shared and user.get("role") == "coach" and session.get("coach_username") == user["username"],
         "can_delete": can_act_for(user, athlete) or session.get("coach_username") == user["username"],
@@ -324,7 +331,7 @@ def serialize_exercise(exercise: Dict) -> Dict:
 
 PAGES = {"/": "index.html", "/exercises": "exercises.html", "/clients": "clients.html",
          "/coaches": "coaches.html", "/profile": "profile.html", "/admin": "admin.html",
-         "/library": "library.html"}
+         "/library": "library.html", "/coverage": "coverage.html"}
 
 for route, filename in PAGES.items():
     app.add_api_route(route, (lambda filename=filename: FileResponse(f"static/{filename}")), methods=["GET"], include_in_schema=False)
@@ -829,7 +836,8 @@ def update_session(session_id: str, req: SessionRequest, user: Dict = Depends(cu
     check_coach_precedence(session, user, req.base_version)
     if is_shared(session) and not edit_all:
         variant = {**{k: v for k, v in session.items() if k not in ("_id", "client_id", "created_at")}, **structure,
-                   "user_id": athlete, "assignees": [], "version": 0, "updated_by": user["username"], "coach_edit_version": 0}
+                   "user_id": athlete, "assignees": [], "version": 0, "updated_by": user["username"], "coach_edit_version": 0,
+                   "schedule": [entry for entry in session.get("schedule") or [] if entry.get("username") == athlete]}
         new_id = db.add_session(variant)
         detach_athlete(session, athlete)
         db.move_workout_logs(session_id, new_id, athlete)  # their history follows them to their own copy
@@ -840,6 +848,25 @@ def update_session(session_id: str, req: SessionRequest, user: Dict = Depends(cu
         updates["coach_edit_version"] = version
     db.update_session(session_id, updates)
     return {"ok": True, "version": version, "id": session_id}
+
+
+class ScheduleRequest(BaseModel):
+    days_per_week: int
+    athlete: Optional[str] = None
+
+
+@app.put("/api/sessions/{session_id}/schedule")
+def set_session_schedule(session_id: str, req: ScheduleRequest, user: Dict = Depends(current_user)):
+    """Sets how many days a week one athlete does this session (drives planned coverage). It isn't part of the
+    session's structure, so it doesn't bump the version or copy a shared session."""
+    session = get_accessible_session(session_id, user)
+    athlete = session_athlete(session, user, req.athlete)
+    schedule = [entry for entry in session.get("schedule") or [] if entry.get("username") != athlete]
+    days = min(7, max(0, req.days_per_week))
+    if days:
+        schedule.append({"username": athlete, "days": days})
+    db.update_session(session_id, {"schedule": schedule})
+    return {"ok": True, "days_per_week": days}
 
 
 @app.post("/api/sessions/{session_id}/assign")
@@ -991,6 +1018,77 @@ def session_history(session_id: str, athlete: Optional[str] = None, user: Dict =
         "user_id": log.get("user_id"),
         "supersets": log.get("supersets", []),
     } for log in db.get_workout_logs_by_session(session_id, athlete)]
+
+# ==================== COVERAGE ====================
+# Weekly sets per muscle: planned (sessions x days per week) and actual (logged workouts, averaged per week).
+
+COVERAGE_WEEKS = 4
+SECONDARY_WEIGHT = 0.5  # a set counts fully for its primary muscles and half for its secondary ones
+TOP_SOURCES = 5
+
+
+class Coverage:
+    def __init__(self, catalog: Dict[str, Dict]):
+        self.catalog = catalog
+        self.muscles: Dict[str, Dict[str, float]] = {}  # muscle id -> {exercise name: weighted sets}
+        self.groups: Dict[str, Dict[str, float]] = {}
+        self.sets = 0.0
+
+    def add(self, exercise_id: str, name: str, sets: float) -> None:
+        exercise = self.catalog.get(exercise_id)
+        if not exercise or sets <= 0:
+            return
+        self.sets += sets
+        name = exercise.get("name") or name
+        primary_groups = exercise.get("primary_group_ids") or []
+        # Groups are credited once per set (a press working three chest muscles is still one chest set).
+        for target, ids, weight in ((self.muscles, exercise.get("primary_muscle_ids"), 1), (self.muscles, exercise.get("secondary_muscle_ids"), SECONDARY_WEIGHT),
+                                    (self.groups, primary_groups, 1),
+                                    (self.groups, [g for g in exercise.get("secondary_group_ids") or [] if g not in primary_groups], SECONDARY_WEIGHT)):
+            for item in ids or []:
+                sources = target.setdefault(item, {})
+                sources[name] = sources.get(name, 0) + sets * weight
+
+    def result(self) -> Dict:
+        def summarize(totals: Dict[str, Dict[str, float]]) -> Dict:
+            return {item: {"sets": round(sum(sources.values()), 2),
+                           "sources": [[name, round(value, 2)] for name, value in sorted(sources.items(), key=lambda kv: -kv[1])[:TOP_SOURCES]]}
+                    for item, sources in totals.items()}
+        return {"muscles": summarize(self.muscles), "groups": summarize(self.groups), "sets": round(self.sets, 2)}
+
+
+@app.get("/api/coverage")
+def coverage(athlete: Optional[str] = None, user: Dict = Depends(current_user)):
+    athlete = athlete or user["username"]
+    if not can_act_for(user, athlete):
+        raise HTTPException(status_code=404, detail="Athlete not found")
+    sessions = [s for s in db.get_sessions_for_users([athlete]) if athlete in session_athletes(s)]
+    logs = db.get_logs_since(athlete, datetime.now() - timedelta(weeks=COVERAGE_WEEKS))
+    ids = {e.get("exercise_id") for s in sessions for sup in s.get("supersets", []) for e in sup.get("exercises", [])}
+    ids |= set(rounds_by_exercise([sup for log in logs for sup in log.get("supersets", [])]))
+    catalog = {str(e["_id"]): e for e in db.get_exercises_by_ids([i for i in ids if i])}
+
+    planned, actual = Coverage(catalog), Coverage(catalog)
+    scheduled, unscheduled = [], []
+    for session in sessions:
+        days = days_per_week(session, athlete)
+        (scheduled if days else unscheduled).append(session.get("name", ""))
+        for superset in session.get("supersets", []):
+            for exercise in superset.get("exercises", []):
+                planned.add(exercise.get("exercise_id"), exercise.get("name", ""), clamp_repeats(superset.get("repeats")) * days)
+    for log in logs:
+        for superset in log.get("supersets", []):
+            for exercise in superset.get("exercises", []):
+                for instance in exercise.get("instances", []):
+                    done = instance.get("swap") or exercise  # a swapped round counts for the exercise actually done
+                    actual.add(done.get("exercise_id"), done.get("name", ""), 1 / COVERAGE_WEEKS)
+    return {
+        "athlete": athlete,
+        "athletes": display_names(reachable_athletes(user)),
+        "planned": {**planned.result(), "scheduled": scheduled, "unscheduled": unscheduled},
+        "actual": {**actual.result(), "workouts": len(logs), "weeks": COVERAGE_WEEKS},
+        "secondary_weight": SECONDARY_WEIGHT,
+    }
 
 # ==================== CLIENTS (coach side) ====================
 

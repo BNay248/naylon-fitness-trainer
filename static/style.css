@@ -128,3 +128,16 @@ nav .nav-toggle { display: none; margin-left: auto; padding: 6px 12px; font-size
 .client-block { padding-bottom: 8px; border-bottom: 1px solid var(--border-soft); }
 .client-block:last-child { border-bottom: none; }
 .client-block .list-row { border-bottom: none; }
+
+/* COVERAGE heat list */
+.heat-row { border-bottom: 1px solid var(--border-soft); padding: 7px 0; }
+.heat-row:last-child { border-bottom: none; }
+.heat-row > summary { display: grid; grid-template-columns: minmax(0, 40%) 1fr 58px; gap: 10px; align-items: center; cursor: pointer; list-style: none; font-size: 14px; }
+.heat-row > summary::-webkit-details-marker { display: none; }
+.heat-row .heat-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.heat-bar { height: 10px; background: var(--input); border-radius: 5px; overflow: hidden; }
+.heat-bar > span { display: block; height: 100%; border-radius: 5px; min-width: 2px; }
+.heat-value { text-align: right; font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.heat-sources { padding: 6px 0 2px; font-size: 13px; color: var(--muted); }
+.heat-legend { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); margin: 6px 0 4px; }
+.heat-legend .scale { flex: 1; max-width: 200px; height: 8px; border-radius: 4px; background: linear-gradient(90deg, hsl(220 70% 50%), hsl(110 70% 45%), hsl(0 75% 52%)); }

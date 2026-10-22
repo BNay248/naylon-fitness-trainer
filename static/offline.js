@@ -1,6 +1,6 @@
 // Offline support for the Sessions page.
 //
-// Every session change (create, edit, delete, log workout) is written to a per-user queue in localStorage first,
+// Every session change (create, edit, delete, schedule, log workout) is written to a per-user queue in localStorage first,
 // shown immediately by overlaying the queue on the last data fetched from the server, and then sent in order.
 // Anything the server rejects (e.g. an athlete's edit that lost to a newer coach edit) is dropped with a notice.
 
@@ -103,6 +103,9 @@ function overlayQueue(serverData, queue, catalog) {
           shared_with: athletes, previous: {}, pending: true });
       }
       views(op.session_id).forEach(view => { view.can_edit_all = ME.role === 'coach' && view.coach_username === ME.username; });
+    } else if (op.kind === 'schedule') {
+      const view = find(op.session_id, op.athlete);
+      if (view) view.days_per_week = op.body.days_per_week;
     } else if (op.kind === 'log') {
       const session = find(op.session_id, op.body.user_id);
       if (!session) continue;
@@ -181,6 +184,7 @@ function sendOp(op) {
     case 'update': return api('PUT', `/api/sessions/${id}`, { ...op.body, base_version: op.base_version });
     case 'delete': return api('DELETE', `/api/sessions/${id}?base_version=${op.base_version}${op.athlete ? `&athlete=${encodeURIComponent(op.athlete)}` : ''}`);
     case 'assign': return api('POST', `/api/sessions/${id}/assign`, op.body);
+    case 'schedule': return api('PUT', `/api/sessions/${id}/schedule`, op.body);
     case 'log': return api('POST', `/api/sessions/${id}/log`, { ...op.body, client_id: op.id });
     case 'template_log': return api('POST', `/api/templates/${encodeURIComponent(op.template_id)}/log`, { ...op.body, client_id: op.id });
   }

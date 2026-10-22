@@ -391,7 +391,8 @@ function withTargetsFilled(draft) {
   return filled;
 }
 
-// actions: {log(session, supersets), update(session, {name, supersets, athlete, scope}), remove(session), assign(session, usernames)}
+// actions: {log(session, supersets), update(session, {name, supersets, athlete, scope}), remove(session), assign(session, usernames),
+//           schedule(session, days)}
 // drafts:  {get(key), set(key, supersets), clear(key)} — unsaved workout values, kept across reloads.
 // openKeys: Set of expanded section keys, shared across re-renders.
 // clients: the coach's clients [{username, name}], used to assign the session; omitted for non-coaches.
@@ -415,6 +416,7 @@ function sessionCard(session, { catalog, actions, drafts, openKeys, clients = nu
       el('span', {}, session.name),
       el('span', { class: 'tag' }, `${session.supersets.length} superset(s)`),
       sharedWith.length > 0 && el('span', { class: 'tag' }, 'Shared'),
+      session.days_per_week > 0 && el('span', { class: 'tag' }, `${session.days_per_week}×/week`),
       unsynced && el('span', { class: 'tag pending' }, 'Not synced')),
     body,
   );
@@ -483,6 +485,11 @@ function sessionCard(session, { catalog, actions, drafts, openKeys, clients = nu
           setTimeout(() => { button.textContent = 'Copy to Clipboard'; }, 1500);
         } }, 'Copy to Clipboard'),
       ),
+      el('div', { class: 'row field' },
+        el('label', { class: 'grow' }, `How many days a week ${athleteName === 'you' ? 'you do' : `${athleteName} does`} this (for Coverage)`),
+        el('select', { style: 'width:auto', onchange: e => actions.schedule(session, Number(e.target.value)) },
+          Array.from({ length: 8 }, (_, days) => el('option', { value: days, selected: days === (session.days_per_week || 0) },
+            days ? `${days} day${days === 1 ? '' : 's'}` : 'Not scheduled')))),
       el('label', { class: 'check' },
         el('input', { type: 'checkbox', checked: showVideos, onchange: e => { showVideos = e.target.checked; render(); } }),
         'Show videos'),

@@ -1,5 +1,5 @@
-const CACHE_NAME = 'trainer-shell-v17';
-const PAGES = ['/', '/exercises', '/clients', '/coaches', '/profile', '/admin', '/library'];
+const CACHE_NAME = 'trainer-shell-v18';
+const PAGES = ['/', '/exercises', '/clients', '/coaches', '/profile', '/admin', '/library', '/coverage'];
 const CORE_ASSETS = [
   ...PAGES,
   '/static/style.css',

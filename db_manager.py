@@ -221,6 +221,9 @@ class TrainerDB:
         })
         return str(result.inserted_id)
 
+    def get_logs_since(self, user_id: str, since: datetime) -> List[Dict]:
+        return list(self.db.workout_logs.find({"user_id": user_id, "created_at": {"$gte": since}}, {"supersets": 1, "created_at": 1}))
+
     def get_logs_with_exercises(self, user_id: str, exercise_ids: List[str]) -> List[Dict]:
         """A user's logs that include any of these exercises, planned or swapped in."""
         return list(self.db.workout_logs.find(
