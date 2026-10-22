@@ -17,12 +17,16 @@
   const EQUIPMENT_PRESETS = {
     'Bodyweight at home': ['Pull-Up Bar', 'Wall', 'Resistance Band'],
     'Dumbbells at home': ['Dumbbell', 'Adjustable Bench', 'Resistance Band', 'Pull-Up Bar', 'Wall'],
-    'Full gym': null, // everything
+    'Full gym': null, // everything except FULL_GYM_EXCLUDES
   };
+  // Outdoor, strongman and specialty kit a typical gym doesn't have; people tick these themselves.
+  const FULL_GYM_EXCLUDES = ['Swimming Pool', 'Bicycle', 'Log', 'Atlas Stone', 'Yoke', 'Tire', 'Sledgehammer', 'Neck Harness',
+    'Hangboard', 'Climbing Rope', 'VersaClimber'];
 
   function equipmentSection(library) {
     const picker = equipmentPicker(library, ME.equipment_ids, 'My equipment');
-    const idsNamed = names => library.equipment.filter(item => !names || names.includes(item.name)).map(item => item.id);
+    const idsNamed = names => library.equipment
+      .filter(item => names ? names.includes(item.name) : !FULL_GYM_EXCLUDES.includes(item.name)).map(item => item.id);
     return el('div', {},
       el('p', { class: 'muted field' }, 'Workout suggestions only use equipment you have. Leave it empty to see everything.'),
       el('div', { class: 'chips field' }, Object.entries(EQUIPMENT_PRESETS).map(([label, names]) =>
