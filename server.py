@@ -1,6 +1,8 @@
+import hashlib
 import math
 import os
 import re
+import secrets
 from collections import defaultdict, deque
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
@@ -27,6 +29,7 @@ COOKIE_NAME = "nfp_session"
 LEGACY_COOKIES = ["trainer_session"]
 COOKIE_DOMAIN = os.environ.get("COOKIE_DOMAIN") or None
 TRACKER_URL = os.environ.get("TRACKER_URL", "")
+TRAINER_URL = os.environ.get("TRAINER_URL", "")  # this app's public address, for reset links
 TEMPLATES_URL = os.environ.get("TEMPLATES_URL", "")
 TOKEN_DAYS = 30
 # Administrators' usernames, comma-separated. No default: a hard-coded name could be registered by anyone if that account were deleted.
@@ -414,7 +417,7 @@ def serialize_exercise(exercise: Dict) -> Dict:
 
 PAGES = {"/": "index.html", "/exercises": "exercises.html", "/clients": "clients.html",
          "/coaches": "coaches.html", "/profile": "profile.html", "/admin": "admin.html",
-         "/library": "library.html", "/coverage": "coverage.html"}
+         "/library": "library.html", "/coverage": "coverage.html", "/reset": "reset.html"}
 
 for route, filename in PAGES.items():
     app.add_api_route(route, (lambda filename=filename: FileResponse(f"static/{filename}")), methods=["GET"], include_in_schema=False)
@@ -1309,6 +1312,71 @@ def admin_toggle_coach(username: str, user: Dict = Depends(admin_user)):
     else:
         db.db.coaches.delete_many({"username": username})
     return {"ok": True, "role": new_role}
+
+
+# ==================== PASSWORD RESET ====================
+# An administrator creates a one-time link and sends it to the person themselves, so no email server is needed.
+# The token travels after "#" in the link (never sent to the server in a page request, so it stays out of logs and
+# referrers), and only its hash is stored.
+
+RESET_LINK_MINUTES = 60
+
+
+def reset_token_hash(token: str) -> str:
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
+def live_reset(token: str, request: Request) -> Dict:
+    """The unexpired reset a token belongs to. Wrong tokens count toward the address's failed-login limit."""
+    limits = {(client_address(request), "#reset"): LOGIN_LIMIT_PER_ADDRESS}
+    check_login_allowed(limits)
+    reset = db.get_password_reset(reset_token_hash(token or ""))
+    if not reset or reset["expires_at"].replace(tzinfo=timezone.utc) < datetime.now(timezone.utc):
+        record_failed_login(limits)
+        raise HTTPException(status_code=404, detail="This link has expired or was already used. Ask the administrator for a new one.")
+    return reset
+
+
+@app.post("/api/admin/users/{username}/reset-link")
+def admin_reset_link(username: str, request: Request, user: Dict = Depends(admin_user)):
+    """A link that lets this user choose a new password, once, within RESET_LINK_MINUTES. Replaces any earlier link."""
+    if not db.get_user_by_username(username):
+        raise HTTPException(status_code=404, detail="User not found")
+    token = secrets.token_urlsafe(32)
+    now = datetime.now(timezone.utc)
+    expires = now + timedelta(minutes=RESET_LINK_MINUTES)
+    db.replace_password_reset(username, {"username": username, "token_hash": reset_token_hash(token), "expires_at": expires,
+                                         "created_at": now, "created_by": user["username"]})
+    base = (TRAINER_URL or str(request.base_url)).rstrip("/")
+    return {"url": f"{base}/reset#{token}", "expires_at": expires.isoformat(), "minutes": RESET_LINK_MINUTES}
+
+
+class ResetTokenRequest(BaseModel):
+    token: str
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str
+    new_password: str
+
+
+@app.post("/api/password-reset/check")
+def check_reset_link(req: ResetTokenRequest, request: Request):
+    reset = live_reset(req.token, request)
+    target = db.get_user_by_username(reset["username"]) or {}
+    return {"username": reset["username"], "name": target.get("name", "")}
+
+
+@app.post("/api/password-reset")
+def reset_password(req: ResetPasswordRequest, request: Request, response: Response):
+    """Sets the new password, logs out every other device, uses up the link and signs this browser in."""
+    reset = live_reset(req.token, request)
+    if len(req.new_password) < 6:
+        raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
+    db.update_user(reset["username"], {"password": hash_password(req.new_password), "tokens_valid_after": int(datetime.now(timezone.utc).timestamp())})
+    db.delete_password_resets(reset["username"])
+    set_session_cookie(response, reset["username"])
+    return {"ok": True}
 
 
 @app.delete("/api/admin/users/{username}")

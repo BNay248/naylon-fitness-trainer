@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>Reset Password · Naylon Fitness Portal</title>
+<link rel="icon" href="/static/NFP.jpg">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="container"></div>
+<div id="toasts"></div>
+<script src="/static/common.js"></script>
+<script>
+  // Opened from a one-time link an administrator sent: /reset#<token>. The token stays in memory only; it's removed
+  // from the address bar straight away so it isn't left in history or shared by accident.
+  const token = decodeURIComponent(location.hash.slice(1));
+  history.replaceState(null, '', '/reset');
+  const box = el('div', { class: 'auth-box' });
+  mount(document.querySelector('.container'), box);
+
+  const show = (...children) => mount(box, el('img', { class: 'logo', src: '/static/NFP.jpg', alt: '' }), el('h2', {}, 'Reset Password'), ...children);
+  const problem = message => show(el('div', { class: 'error' }, message), el('p', { class: 'muted' }, el('a', { href: '/' }, 'Go to login')));
+
+  async function start() {
+    if (!token) return problem('This reset link is incomplete. Ask the administrator for a new one.');
+    let account;
+    try {
+      account = await api('POST', '/api/password-reset/check', { token });
+    } catch (err) {
+      return problem(err.status === 0 ? "You're offline. Connect and open the link again." : err.message);
+    }
+    const error = el('div', { class: 'error hidden' });
+    const password = el('input', { type: 'password', placeholder: 'New password', autocomplete: 'new-password' });
+    const confirm = el('input', { type: 'password', placeholder: 'Confirm new password', autocomplete: 'new-password' });
+    const submit = el('button', { type: 'submit', class: 'primary' }, 'Set Password');
+    const fail = message => { error.textContent = message; error.classList.remove('hidden'); };
+    show(
+      el('form', { onsubmit: async e => {
+        e.preventDefault();
+        if (password.value.length < 6) return fail('Password must be at least 6 characters');
+        if (password.value !== confirm.value) return fail('Passwords do not match');
+        submit.disabled = true;
+        try {
+          await api('POST', '/api/password-reset', { token, new_password: password.value });
+          show(el('p', { class: 'field' }, "Your password has been changed and you're logged in. Any other devices have been signed out."),
+            el('a', { class: 'btn primary', href: '/' }, 'Go to Sessions'));
+        } catch (err) {
+          fail(err.message);
+          submit.disabled = false;
+        }
+      } },
+        el('p', { class: 'muted field' }, `Choose a new password for ${account.name || account.username} (${account.username}).`),
+        error, password, confirm, submit),
+    );
+  }
+  start();
+</script>
+</body>
+</html>

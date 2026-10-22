@@ -47,6 +47,8 @@ class TrainerDB:
         self.db.sessions.create_index("client_id", sparse=True)
         self.db.sessions.create_index("assignees", sparse=True)
         self.db.muscles.create_index("group_id")
+        self.db.password_resets.create_index("token_hash", unique=True)
+        self.db.password_resets.create_index("expires_at", expireAfterSeconds=0)  # MongoDB deletes expired links
         for field in MUSCLE_FIELDS + GROUP_FIELDS + LINK_FIELDS:
             self.db.exercises.create_index(field, sparse=True)
 
@@ -146,6 +148,7 @@ class TrainerDB:
 
     def delete_user(self, username: str) -> bool:
         result = self.db.users.delete_one({"username": username})
+        self.db.password_resets.delete_many({"username": username})
         self.db.coaches.delete_many({"username": username})
         self.db.clients.delete_many({"username": username})
         self.db.users.update_many({}, {"$pull": {
@@ -153,6 +156,17 @@ class TrainerDB:
             "pending_client_requests": username, "pending_coach_requests": username,
         }})
         return result.deleted_count > 0
+
+    # One-time password reset links (only a hash of each token is stored)
+    def replace_password_reset(self, username: str, reset: Dict) -> None:
+        self.db.password_resets.delete_many({"username": username})
+        self.db.password_resets.insert_one(reset)
+
+    def get_password_reset(self, token_hash: str) -> Optional[Dict]:
+        return self.db.password_resets.find_one({"token_hash": token_hash})
+
+    def delete_password_resets(self, username: str) -> None:
+        self.db.password_resets.delete_many({"username": username})
 
     # Coach <-> client relationships (usernames stored on both user documents)
     def request_client(self, coach: str, client: str) -> None:
