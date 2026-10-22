@@ -73,7 +73,7 @@
         el('div', { class: 'list-row' }, el('span', { class: 'grow muted' }, 'Email'), ME.email),
         el('div', { class: 'list-row' }, el('span', { class: 'grow muted' }, 'Role'), ME.role === 'coach' ? 'Coach' : 'Client'),
       ),
-      ME.role !== 'coach' && el('p', { class: 'muted field' }, COACH_CONTACT),
+      ME.role !== 'coach' && el('p', { class: 'muted field' }, coachContact()),
       el('h2', {}, 'Training Equipment'),
       equipmentSection(library),
       el('h2', {}, 'Change Password'),

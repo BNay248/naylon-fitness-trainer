@@ -80,7 +80,7 @@ function formatDate(isoString) {
   return new Date(isoString).toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
 }
 
-const COACH_CONTACT = "If you'd like to become a coach, please contact the administrator (bradleynaylon@yahoo.com).";
+const coachContact = () => `If you'd like to become a coach, please contact the administrator${ME.admin_contact ? ` (${ME.admin_contact})` : ''}.`;
 
 function renderNav(active) {
   const links = [
@@ -208,7 +208,7 @@ async function boot(active, render, { coachOnly = false, adminOnly = false } = {
   }
   const main = el('main', {});
   mount(container, renderNav(active), main);
-  if (coachOnly && ME.role !== 'coach') return mount(main, el('div', { class: 'info' }, `This page is for coaches. ${COACH_CONTACT}`));
+  if (coachOnly && ME.role !== 'coach') return mount(main, el('div', { class: 'info' }, `This page is for coaches. ${coachContact()}`));
   if (adminOnly && !ME.is_admin) return mount(main, el('div', { class: 'info' }, 'Access denied. This page is only available to the administrator.'));
   await render(main);
 }

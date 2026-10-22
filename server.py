@@ -1,11 +1,14 @@
 import math
 import os
+import re
+from collections import defaultdict, deque
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
+from urllib.parse import urlparse
 
 import bcrypt
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from jose import JWTError, jwt
 from pydantic import BaseModel
@@ -26,7 +29,9 @@ COOKIE_DOMAIN = os.environ.get("COOKIE_DOMAIN") or None
 TRACKER_URL = os.environ.get("TRACKER_URL", "")
 TEMPLATES_URL = os.environ.get("TEMPLATES_URL", "")
 TOKEN_DAYS = 30
-ADMINS = {name.strip() for name in os.environ.get("TRAINER_ADMINS", "brad").split(",") if name.strip()}
+# Administrators' usernames, comma-separated. No default: a hard-coded name could be registered by anyone if that account were deleted.
+ADMINS = {name.strip() for name in os.environ.get("TRAINER_ADMINS", "").split(",") if name.strip()}
+ADMIN_CONTACT = os.environ.get("ADMIN_CONTACT", "")  # shown to people asking how to become a coach
 POSSIBLE_METRICS = ["Reps", "Weight", "Duration", "Calories", "Resistance", "Distance"]
 MAX_REPEATS = 20
 MAX_NOTE = 500
@@ -38,6 +43,81 @@ if len(SECRET) < 32:
     raise RuntimeError("Set JWT_SECRET to a random value of at least 32 characters (e.g. `python3 -c \"import secrets; print(secrets.token_hex(32))\"`)")
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
+
+# ==================== SECURITY ====================
+# The same protections run in the trainer, templates and tracker apps; keep them in step.
+
+UNSAFE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+SECURITY_HEADERS = {"X-Content-Type-Options": "nosniff", "X-Frame-Options": "DENY", "Referrer-Policy": "same-origin",
+                    "Content-Security-Policy": "frame-ancestors 'none'"}
+USERNAME_PATTERN = re.compile(r"^[A-Za-z0-9_.-]{1,40}$")
+LOGIN_WINDOW = 15 * 60
+LOGIN_LIMIT_PER_ACCOUNT = 10  # failed logins per window for one username from one address
+LOGIN_LIMIT_PER_ADDRESS = 50  # failed logins per window from one address, any username
+failed_logins: Dict[tuple, deque] = defaultdict(deque)
+
+
+def same_origin(request: Request) -> bool:
+    """Whether a request came from this site's own pages. The login cookie is shared with every subdomain of the
+    cookie domain, so a page on a sibling subdomain counts as same-site and would get the cookie attached."""
+    site = request.headers.get("sec-fetch-site")
+    if site:
+        return site in ("same-origin", "none")
+    origin = request.headers.get("origin")
+    return not origin or urlparse(origin).netloc == request.headers.get("host")
+
+
+@app.middleware("http")
+async def protect(request: Request, call_next):
+    if request.method in UNSAFE_METHODS and request.url.path.startswith("/api/") and not same_origin(request):
+        return JSONResponse({"detail": "Cross-site request blocked"}, status_code=403)
+    response = await call_next(request)
+    for name, value in SECURITY_HEADERS.items():
+        response.headers.setdefault(name, value)
+    return response
+
+
+def client_address(request: Request) -> str:
+    # Behind Apache, trust the address it appended to X-Forwarded-For, but only when the request came from the local proxy.
+    host = request.client.host if request.client else ""
+    forwarded = request.headers.get("x-forwarded-for")
+    return forwarded.split(",")[-1].strip() if forwarded and host in ("127.0.0.1", "::1") else host
+
+
+def login_limits(request: Request, username: str) -> Dict[tuple, int]:
+    address = client_address(request)
+    return {(address, username.lower()): LOGIN_LIMIT_PER_ACCOUNT, (address,): LOGIN_LIMIT_PER_ADDRESS}
+
+
+def check_login_allowed(limits: Dict[tuple, int]) -> None:
+    now = datetime.now(timezone.utc).timestamp()
+    for key, limit in limits.items():
+        attempts = failed_logins[key]
+        while attempts and now - attempts[0] > LOGIN_WINDOW:
+            attempts.popleft()
+        if not attempts:
+            del failed_logins[key]
+        elif len(attempts) >= limit:
+            minutes = int((LOGIN_WINDOW - (now - attempts[0])) // 60) + 1
+            raise HTTPException(status_code=429, detail=f"Too many failed logins. Try again in {minutes} minute{'s' if minutes != 1 else ''}.")
+
+
+def record_failed_login(limits: Dict[tuple, int]) -> None:
+    now = datetime.now(timezone.utc).timestamp()
+    for key in limits:
+        failed_logins[key].append(now)
+
+
+def check_registration(username: str, name: str, email: str) -> None:
+    if not USERNAME_PATTERN.match(username):
+        raise HTTPException(status_code=400, detail="Usernames are up to 40 letters, numbers, dots, dashes or underscores")
+    if len(name) > 80 or len(email) > 120:
+        raise HTTPException(status_code=400, detail="Name or email is too long")
+
+
+def token_revoked(payload: Dict, user: Dict) -> bool:
+    """Tokens issued before the user's last password change (tokens_valid_after, epoch seconds) no longer work."""
+    return payload.get("iat", 0) < user.get("tokens_valid_after", 0)
 
 
 @app.middleware("http")
@@ -53,8 +133,8 @@ async def revalidate_assets(request: Request, call_next):
 
 
 def create_token(username: str) -> str:
-    expire = datetime.now(timezone.utc) + timedelta(days=TOKEN_DAYS)
-    return jwt.encode({"username": username, "exp": expire}, SECRET, algorithm=ALGORITHM)
+    now = datetime.now(timezone.utc)
+    return jwt.encode({"username": username, "iat": int(now.timestamp()), "exp": now + timedelta(days=TOKEN_DAYS)}, SECRET, algorithm=ALGORITHM)
 
 
 def set_session_cookie(response: Response, username: str) -> None:
@@ -67,12 +147,15 @@ def current_user(request: Request) -> Dict:
     if not token:
         raise HTTPException(status_code=401, detail="Not authenticated")
     try:
-        username = jwt.decode(token, SECRET, algorithms=[ALGORITHM])["username"]
+        payload = jwt.decode(token, SECRET, algorithms=[ALGORITHM])
+        username = payload["username"]
     except (JWTError, KeyError):
         raise HTTPException(status_code=401, detail="Invalid session")
     user = db.get_user_by_username(username)
     if not user:
         raise HTTPException(status_code=401, detail="User no longer exists")
+    if token_revoked(payload, user):
+        raise HTTPException(status_code=401, detail="Please log in again")
     return user
 
 
@@ -370,9 +453,12 @@ class PasswordRequest(BaseModel):
 
 
 @app.post("/api/login")
-def login(req: LoginRequest, response: Response):
+def login(req: LoginRequest, request: Request, response: Response):
+    limits = login_limits(request, req.username.strip())
+    check_login_allowed(limits)
     user = db.get_user_by_username(req.username.strip())
     if not user or not user.get("password") or not bcrypt.checkpw(req.password.encode(), user["password"].encode()):
+        record_failed_login(limits)
         raise HTTPException(status_code=401, detail="Username/password is incorrect")
     set_session_cookie(response, user["username"])
     return {"ok": True}
@@ -383,6 +469,7 @@ def register(req: RegisterRequest, response: Response):
     username, name, email = req.username.strip(), req.name.strip(), req.email.strip()
     if not username or not name or not email or not req.password:
         raise HTTPException(status_code=400, detail="Please fill all fields")
+    check_registration(username, name, email)
     if db.get_user_by_username(username):
         raise HTTPException(status_code=400, detail="Username already exists")
     if len(req.password) < 6:
@@ -408,6 +495,7 @@ def me(user: Dict = Depends(current_user)):
         "email": user.get("email", ""),
         "role": user.get("role", "client"),
         "is_admin": user["username"] in ADMINS,
+        "admin_contact": ADMIN_CONTACT,
         "tracker_url": TRACKER_URL,
         "templates_url": TEMPLATES_URL,
         **training_profile(user),
@@ -431,12 +519,14 @@ def set_my_equipment(req: EquipmentRequest, user: Dict = Depends(current_user)):
 
 
 @app.post("/api/password")
-def change_password(req: PasswordRequest, user: Dict = Depends(current_user)):
+def change_password(req: PasswordRequest, response: Response, user: Dict = Depends(current_user)):
+    """Changing the password logs out every other device: tokens issued before now stop working."""
     if not bcrypt.checkpw(req.current_password.encode(), user["password"].encode()):
         raise HTTPException(status_code=400, detail="Current password is incorrect")
     if len(req.new_password) < 6:
         raise HTTPException(status_code=400, detail="New password must be at least 6 characters")
-    db.update_user(user["username"], {"password": hash_password(req.new_password)})
+    db.update_user(user["username"], {"password": hash_password(req.new_password), "tokens_valid_after": int(datetime.now(timezone.utc).timestamp())})
+    set_session_cookie(response, user["username"])
     return {"ok": True}
 
 # ==================== EXERCISES ====================
@@ -785,7 +875,7 @@ def list_sessions(user: Dict = Depends(current_user)):
 
 
 def validated_structure(req: SessionRequest, usernames: List[str], existing: Optional[List[Dict]] = None) -> Dict:
-    name = req.name.strip()
+    name = req.name.strip()[:100]
     supersets = clean_structure(req.supersets, usernames, existing)
     if not name:
         raise HTTPException(status_code=400, detail="Please enter a session name")
@@ -1197,6 +1287,7 @@ def admin_create_user(req: AdminUserRequest, user: Dict = Depends(admin_user)):
     username = req.username.strip()
     if not username or not req.name.strip() or not req.email.strip() or not req.password:
         raise HTTPException(status_code=400, detail="Please fill all fields")
+    check_registration(username, req.name.strip(), req.email.strip())
     if db.get_user_by_username(username):
         raise HTTPException(status_code=400, detail="Username already exists")
     role = "coach" if req.coach else "client"
